@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.0
+    Version: 1.0.1
     Last Updated: February 24, 2025
 #>
 
@@ -119,9 +119,9 @@ foreach ($vmHost in $vmHosts) {
             }
 
             # Ensure arrays are not null before joining
-            $nicList = if ($vSwitch.Nic) { $vSwitch.Nic } else { @() }
-            $activeNicList = if ($teaming.ActiveNic) { $teaming.ActiveNic } else { @() }
-            $standbyNicList = if ($teaming.StandbyNic) { $teaming.StandbyNic } else { @() }
+            $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
+            $activeNicList = if ($null -ne $teaming.ActiveNic) { $teaming.ActiveNic } else { @() }
+            $standbyNicList = if ($null -ne $teaming.StandbyNic) { $teaming.StandbyNic } else { @() }
 
             [PSCustomObject]@{
                 Name = $vSwitch.Name
@@ -182,8 +182,8 @@ foreach ($vmHost in $vmHosts) {
             }
 
             # Ensure arrays are not null before joining
-            $activeUplinkList = if ($teaming.ActiveUplink) { $teaming.ActiveUplink } else { @() }
-            $standbyUplinkList = if ($teaming.StandbyUplink) { $teaming.StandbyUplink } else { @() }
+            $activeUplinkList = if ($null -ne $teaming.ActiveUplink) { $teaming.ActiveUplink } else { @() }
+            $standbyUplinkList = if ($null -ne $teaming.StandbyUplink) { $teaming.StandbyUplink } else { @() }
 
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
@@ -203,8 +203,8 @@ foreach ($vmHost in $vmHosts) {
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
-        $dnsServersList = if ($networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
-        $staticRoutesList = if ($vmHost | Get-VMHostRoute) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
+        $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
+        $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute)) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
             StaticRoutes = [String]::Join(', ', $staticRoutesList)
@@ -221,11 +221,11 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="ntp">NTP Settings</h2>') | Out-Null
         $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
-        $ntpServersList = if ($ntpConfig) { $ntpConfig } else { @() }
+        $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         $ntpData = [PSCustomObject]@{
             NTPServers = [String]::Join(', ', $ntpServersList)
-            Running = $ntpService.Running
-            Policy = $ntpService.Policy
+            Running = if ($null -ne $ntpService) { $ntpService.Running } else { 'N/A' }
+            Policy = if ($null -ne $ntpService) { $ntpService.Policy } else { 'N/A' }
         }
         $htmlContent.Add(($ntpData | ConvertTo-Html -Fragment)) | Out-Null
 
@@ -245,7 +245,7 @@ foreach ($vmHost in $vmHosts) {
             $hint = $hintTable[$nic.Name]
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
-            $vSwitchList = if ($vSwitches | Where-Object { $_.Nic -contains $nic.Name }) { 
+            $vSwitchList = if ($null -ne ($vSwitches | Where-Object { $_.Nic -contains $nic.Name })) { 
                 @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }) 
             } else { 
                 @() 
