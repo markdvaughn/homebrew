@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.1
+    Version: 1.0.2
     Last Updated: February 24, 2025
 #>
 
@@ -113,6 +113,7 @@ foreach ($vmHost in $vmHosts) {
                     $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
                     "$($_.Name) (VLAN $vlan)"
                 })
+                Write-Host "Joining vmkArray for $($vSwitch.Name): $($vmkArray -join ', ')"
                 [String]::Join(', ', $vmkArray)
             } else {
                 'None'
@@ -122,6 +123,10 @@ foreach ($vmHost in $vmHosts) {
             $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
             $activeNicList = if ($null -ne $teaming.ActiveNic) { $teaming.ActiveNic } else { @() }
             $standbyNicList = if ($null -ne $teaming.StandbyNic) { $teaming.StandbyNic } else { @() }
+
+            Write-Host "Joining nicList for $($vSwitch.Name): $($nicList -join ', ')"
+            Write-Host "Joining activeNicList for $($vSwitch.Name): $($activeNicList -join ', ')"
+            Write-Host "Joining standbyNicList for $($vSwitch.Name): $($standbyNicList -join ', ')"
 
             [PSCustomObject]@{
                 Name = $vSwitch.Name
@@ -176,6 +181,7 @@ foreach ($vmHost in $vmHosts) {
             $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost -DistributedSwitch $dvSwitch | Where-Object { $_.DeviceType -eq 'Physical' }
             $uplinkNames = if ($dvUplinks) {
                 $uplinkArray = @($dvUplinks | ForEach-Object { $_.Name })
+                Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($uplinkArray -join ', ')"
                 [String]::Join(', ', $uplinkArray)
             } else {
                 'None'
@@ -184,6 +190,9 @@ foreach ($vmHost in $vmHosts) {
             # Ensure arrays are not null before joining
             $activeUplinkList = if ($null -ne $teaming.ActiveUplink) { $teaming.ActiveUplink } else { @() }
             $standbyUplinkList = if ($null -ne $teaming.StandbyUplink) { $teaming.StandbyUplink } else { @() }
+
+            Write-Host "Joining activeUplinkList for $($dvSwitch.Name): $($activeUplinkList -join ', ')"
+            Write-Host "Joining standbyUplinkList for $($dvSwitch.Name): $($standbyUplinkList -join ', ')"
 
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
@@ -205,6 +214,10 @@ foreach ($vmHost in $vmHosts) {
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
         $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
         $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute)) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
+        
+        Write-Host "Joining dnsServersList: $($dnsServersList -join ', ')"
+        Write-Host "Joining staticRoutesList: $($staticRoutesList -join ', ')"
+        
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
             StaticRoutes = [String]::Join(', ', $staticRoutesList)
@@ -222,6 +235,9 @@ foreach ($vmHost in $vmHosts) {
         $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
+        
+        Write-Host "Joining ntpServersList: $($ntpServersList -join ', ')"
+        
         $ntpData = [PSCustomObject]@{
             NTPServers = [String]::Join(', ', $ntpServersList)
             Running = if ($null -ne $ntpService) { $ntpService.Running } else { 'N/A' }
@@ -250,6 +266,8 @@ foreach ($vmHost in $vmHosts) {
             } else { 
                 @() 
             }
+            
+            Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
             
             [PSCustomObject]@{
                 Name = $nic.Name
