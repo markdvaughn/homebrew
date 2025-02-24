@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.3
+    Version: 1.0.4
     Last Updated: February 24, 2025
 #>
 
@@ -119,10 +119,16 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Ensure arrays are not null before joining, and check $teaming is valid
+            # Ensure arrays are not null before joining, with explicit $teaming check
             $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
-            $activeNicList = if ($null -ne $teaming -and $null -ne $teaming.ActiveNic) { $teaming.ActiveNic } else { @() }
-            $standbyNicList = if ($null -ne $teaming -and $null -ne $teaming.StandbyNic) { $teaming.StandbyNic } else { @() }
+            $activeNicList = @()
+            $standbyNicList = @()
+            $loadBalancing = 'N/A'
+            if ($null -ne $teaming) {
+                if ($null -ne $teaming.ActiveNic) { $activeNicList = $teaming.ActiveNic }
+                if ($null -ne $teaming.StandbyNic) { $standbyNicList = $teaming.StandbyNic }
+                $loadBalancing = $teaming.LoadBalancingPolicy
+            }
 
             Write-Host "Joining nicList for $($vSwitch.Name): $($nicList -join ', ')"
             Write-Host "Joining activeNicList for $($vSwitch.Name): $($activeNicList -join ', ')"
@@ -136,7 +142,7 @@ foreach ($vmHost in $vmHosts) {
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
-                LoadBalancing = if ($null -ne $teaming) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+                LoadBalancing = $loadBalancing
                 ActiveNICs = [String]::Join(', ', $activeNicList)
                 StandbyNICs = [String]::Join(', ', $standbyNicList)
                 VMkernels_VLANs = $vmkList
@@ -187,9 +193,15 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Ensure arrays are not null before joining, and check $teaming is valid
-            $activeUplinkList = if ($null -ne $teaming -and $null -ne $teaming.ActiveUplink) { $teaming.ActiveUplink } else { @() }
-            $standbyUplinkList = if ($null -ne $teaming -and $null -ne $teaming.StandbyUplink) { $teaming.StandbyUplink } else { @() }
+            # Ensure arrays are not null before joining, with explicit $teaming check
+            $activeUplinkList = @()
+            $standbyUplinkList = @()
+            $loadBalancing = 'N/A'
+            if ($null -ne $teaming) {
+                if ($null -ne $teaming.ActiveUplink) { $activeUplinkList = $teaming.ActiveUplink }
+                if ($null -ne $teaming.StandbyUplink) { $standbyUplinkList = $teaming.StandbyUplink }
+                $loadBalancing = $teaming.LoadBalancingPolicy
+            }
 
             Write-Host "Joining activeUplinkList for $($dvSwitch.Name): $($activeUplinkList -join ', ')"
             Write-Host "Joining standbyUplinkList for $($dvSwitch.Name): $($standbyUplinkList -join ', ')"
@@ -202,7 +214,7 @@ foreach ($vmHost in $vmHosts) {
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
-                LoadBalancing = if ($null -ne $teaming) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+                LoadBalancing = $loadBalancing
                 ActiveNICs = [String]::Join(', ', $activeUplinkList)
                 StandbyNICs = [String]::Join(', ', $standbyUplinkList)
             }
