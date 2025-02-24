@@ -123,13 +123,13 @@ foreach ($vmHost in $vmHosts) {
                 Name = $vSwitch.Name
                 Ports = $vSwitch.NumPorts
                 MTU = $vSwitch.MTU
-                NICs = ($vSwitch.Nic -join ', ')
+                NICs = [String]::Join(', ', $vSwitch.Nic)
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
                 LoadBalancing = $teaming.LoadBalancingPolicy
-                ActiveNICs = ($teaming.ActiveNic -join ', ')
-                StandbyNICs = ($teaming.StandbyNic -join ', ')
+                ActiveNICs = [String]::Join(', ', $teaming.ActiveNic)
+                StandbyNICs = [String]::Join(', ', $teaming.StandbyNic)
                 VMkernels_VLANs = $vmkList
             }
         }
@@ -170,8 +170,12 @@ foreach ($vmHost in $vmHosts) {
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
             # Get physical NICs (uplinks) associated with this dvSwitch for this host
             $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost -DistributedSwitch $dvSwitch | Where-Object { $_.DeviceType -eq 'Physical' }
-            $uplinkNames = $dvUplinks | ForEach-Object { $_.Name } -join ', '
-            if (-not $uplinkNames) { $uplinkNames = 'None' }
+            $uplinkNames = if ($dvUplinks) {
+                $uplinkArray = @($dvUplinks | ForEach-Object { $_.Name })
+                [String]::Join(', ', $uplinkArray)
+            } else {
+                'None'
+            }
 
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
@@ -182,8 +186,8 @@ foreach ($vmHost in $vmHosts) {
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
                 LoadBalancing = $teaming.LoadBalancingPolicy
-                ActiveNICs = ($teaming.ActiveUplink -join ', ')
-                StandbyNICs = ($teaming.StandbyUplink -join ', ')
+                ActiveNICs = [String]::Join(', ', $teaming.ActiveUplink)
+                StandbyNICs = [String]::Join(', ', $teaming.StandbyUplink)
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
@@ -192,8 +196,8 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
         $dnsRoutingData = [PSCustomObject]@{
-            DNSServers = ($networkConfig.DnsAddress -join ', ')
-            StaticRoutes = ($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) -join ', '
+            DNSServers = [String]::Join(', ', $networkConfig.DnsAddress)
+            StaticRoutes = [String]::Join(', ', @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }))
         }
         $htmlContent.Add(($dnsRoutingData | ConvertTo-Html -Fragment)) | Out-Null
 
@@ -208,7 +212,7 @@ foreach ($vmHost in $vmHosts) {
         $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
         $ntpData = [PSCustomObject]@{
-            NTPServers = ($ntpConfig -join ', ')
+            NTPServers = [String]::Join(', ', $ntpConfig)
             Running = $ntpService.Running
             Policy = $ntpService.Policy
         }
@@ -234,7 +238,7 @@ foreach ($vmHost in $vmHosts) {
                 Name = $nic.Name
                 MAC = $nic.Mac
                 LinkSpeed = "$($nic.LinkSpeedMb) Mb/s"
-                vSwitches = (($vSwitches | Where-Object { $_.Nic -contains $nic.Name }).Name -join ', ')
+                vSwitches = [String]::Join(', ', @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }))
                 CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
                 CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
                 CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
