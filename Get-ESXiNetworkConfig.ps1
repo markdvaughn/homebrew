@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.4
+    Version: 1.0.5
     Last Updated: February 24, 2025
 #>
 
@@ -273,11 +273,7 @@ foreach ($vmHost in $vmHosts) {
             $hint = $hintTable[$nic.Name]
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
-            $vSwitchList = if ($null -ne ($vSwitches | Where-Object { $_.Nic -contains $nic.Name })) { 
-                @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }) 
-            } else { 
-                @() 
-            }
+            $vSwitchList = @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name })
             
             Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
             
