@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.10
+    Version: 1.0.11
     Last Updated: February 24, 2025
 #>
 
@@ -184,31 +184,12 @@ foreach ($vmHost in $vmHosts) {
             $security = $dvSwitch | Get-VDSecurityPolicy
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
             
-            # Get physical NICs (uplinks) and map to logical uplinks
+            # Get physical NICs (uplinks) and teaming policy from ProxySwitch
             $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
             $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
             Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
             if ($proxySwitch) {
                 Write-Host "Debug: Pnic for $($dvSwitch.Name): $($proxySwitch.Pnic -join ', ')"
-            }
-            
-            # Map logical uplinks (e.g., Uplink1) to physical NICs (e.g., vmnic6)
-            $uplinkMapping = @{}
-            if ($proxySwitch -and $proxySwitch.Pnic -and $proxySwitch.Spec.Policy.NicOrder) {
-                $nicOrder = $proxySwitch.Spec.Policy.NicOrder
-                $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
-                $activeLogicalUplinks = $nicOrder.ActiveNic
-                $standbyLogicalUplinks = $nicOrder.StandbyNic
-                
-                # Create mapping from logical uplink names to physical NICs
-                $uplinkPortKeys = $proxySwitch.UplinkPort
-                $pnicIndex = 0
-                foreach ($portKey in $uplinkPortKeys) {
-                    if ($pnicIndex -lt $pnicList.Count) {
-                        $uplinkMapping[$portKey] = $pnicList[$pnicIndex]
-                        $pnicIndex++
-                    }
-                }
             }
             
             $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
@@ -223,17 +204,16 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Determine active and standby NICs using the mapping
+            # Determine active and standby NICs from ProxySwitch NicOrder
             $activeNicList = @()
             $standbyNicList = @()
             $loadBalancing = 'N/A'
-            if ($null -ne $teaming -and $null -ne $proxySwitch) {
-                if ($teaming.ActiveUplink) {
-                    $activeNicList = @($teaming.ActiveUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
-                }
-                if ($teaming.StandbyUplink) {
-                    $standbyNicList = @($teaming.StandbyUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
-                }
+            if ($proxySwitch -and $proxySwitch.Spec.Policy.NicOrder) {
+                $nicOrder = $proxySwitch.Spec.Policy.NicOrder
+                $activeNicList = @($nicOrder.ActiveNic | ForEach-Object { $_.Split('-')[-1] })
+                $standbyNicList = @($nicOrder.StandbyNic | ForEach-Object { $_.Split('-')[-1] })
+            }
+            if ($null -ne $teaming) {
                 $loadBalancing = $teaming.LoadBalancingPolicy
             }
 
@@ -294,6 +274,7 @@ foreach ($vmHost in $vmHosts) {
         # --- Physical NIC Hardware Information with Network Hints ---
         $htmlContent.Add('<h2 id="physicalNics">Physical NICs</h2>') | Out-Null
         $physicalNics = Get-VMHostNetworkAdapter -VMHost $vmHost -Physical
+        $allSwitches = @($vSwitches) + @(Get-VDSwitch -VMHost $vmHost)
         
         # Get Network Hints using current method
         $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
@@ -307,7 +288,14 @@ foreach ($vmHost in $vmHosts) {
             $hint = $hintTable[$nic.Name]
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
-            $vSwitchList = @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name })
+            $vSwitchList = @($allSwitches | Where-Object { 
+                if ($_.Type -eq 'Distributed') {
+                    $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $_.ExtensionData.Uuid }
+                    $proxySwitch -and $proxySwitch.Pnic -contains "key-vim.host.PhysicalNic-$($nic.Name)"
+                } else {
+                    $_.Nic -contains $nic.Name
+                }
+            } | ForEach-Object { $_.Name })
             
             Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
             
