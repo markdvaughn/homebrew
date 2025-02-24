@@ -105,11 +105,16 @@ foreach ($vmHost in $vmHosts) {
             $relatedVmk = $vmkAdapters | Where-Object { 
                 $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
             }
-            $vmkList = $relatedVmk | ForEach-Object { 
-                $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
-                "$($_.Name) (VLAN $vlan)"
-            } -join ', '
-            if (-not $vmkList) { $vmkList = 'None' }
+            # Collect VMkernel and VLAN info into an array, then join
+            $vmkList = if ($relatedVmk) {
+                $vmkArray = $relatedVmk | ForEach-Object { 
+                    $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
+                    "$($_.Name) (VLAN $vlan)"
+                }
+                $vmkArray -join ', '
+            } else {
+                'None'
+            }
 
             [PSCustomObject]@{
                 Name = $vSwitch.Name
