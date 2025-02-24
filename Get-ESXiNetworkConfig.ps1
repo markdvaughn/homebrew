@@ -75,9 +75,12 @@ $vmHosts = Get-VMHost | Sort-Object Name
 foreach ($vmHost in $vmHosts) {
     Write-Host "Processing network configuration for host: $($vmHost.Name)"
     
-    # Initialize HTML content array
+    # Get current date and time for subheading
+    $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
+    
+    # Initialize HTML content array with main heading and italicized datetime subheading
     $htmlContent = [System.Collections.ArrayList]::new()
-    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1>") | Out-Null
+    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><h3><i>$reportDateTime</i></h3>") | Out-Null
     
     # Table of Contents
     $toc = '<div class="toc"><h2>Table of Contents</h2>'
@@ -105,7 +108,6 @@ foreach ($vmHost in $vmHosts) {
             $relatedVmk = $vmkAdapters | Where-Object { 
                 $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
             }
-            # Collect VMkernel and VLAN info into an array, then join
             $vmkList = if ($relatedVmk) {
                 $vmkArray = $relatedVmk | ForEach-Object { 
                     $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
@@ -134,14 +136,22 @@ foreach ($vmHost in $vmHosts) {
 
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
+        # Get host network config for VMkernel-specific gateway
+        $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         $vmkData = foreach ($vmk in $vmkAdapters) {
+            # Find the VMkernel-specific gateway from IpRouteConfig
+            $vmkGateway = $hostNetwork.ExtensionData.IpRoute | Where-Object {
+                $_.Network -eq '0.0.0.0/0' -and $_.Gateway -ne $hostNetwork.DefaultGateway
+            } | Select-Object -First 1 -ExpandProperty Gateway
+            if (-not $vmkGateway) { $vmkGateway = 'N/A' }  # Default to N/A if no specific gateway
+
             [PSCustomObject]@{
                 Name = $vmk.Name
                 IP = $vmk.IP
                 SubnetMask = $vmk.SubnetMask
                 MAC = $vmk.Mac
                 PortGroup = $vmk.PortGroupName
-                Gateway = $vmk.VMHost.NetworkInfo.DefaultGateway  # VMkernel-specific gateway
+                Gateway = $vmkGateway  # VMkernel-specific gateway
                 VMotion = $vmk.VMotionEnabled
                 FTLogging = $vmk.FaultToleranceLoggingEnabled
                 Management = $vmk.ManagementTrafficEnabled
@@ -157,11 +167,16 @@ foreach ($vmHost in $vmHosts) {
         $dvSwitchData = foreach ($dvSwitch in $dvSwitches) {
             $security = $dvSwitch | Get-VDSecurityPolicy
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
+            # Get physical NICs (uplinks) associated with this dvSwitch for this host
+            $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost -DistributedSwitch $dvSwitch | Where-Object { $_.DeviceType -eq 'Physical' }
+            $uplinkNames = $dvUplinks | ForEach-Object { $_.Name } -join ', '
+            if (-not $uplinkNames) { $uplinkNames = 'None' }
+
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
                 Ports = $dvSwitch.NumPorts
                 MTU = $dvSwitch.Mtu
-                NICs = ($dvSwitch.UplinkNames -join ', ')
+                NICs = $uplinkNames  # Physical NICs assigned as uplinks
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
