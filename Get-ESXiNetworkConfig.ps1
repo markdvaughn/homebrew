@@ -204,9 +204,10 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
         $dnsServersList = if ($networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
+        $staticRoutesList = if ($vmHost | Get-VMHostRoute) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
-            StaticRoutes = [String]::Join(', ', @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }))
+            StaticRoutes = [String]::Join(', ', $staticRoutesList)
         }
         $htmlContent.Add(($dnsRoutingData | ConvertTo-Html -Fragment)) | Out-Null
 
@@ -244,7 +245,11 @@ foreach ($vmHost in $vmHosts) {
             $hint = $hintTable[$nic.Name]
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
-            $vSwitchList = @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name })
+            $vSwitchList = if ($vSwitches | Where-Object { $_.Nic -contains $nic.Name }) { 
+                @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }) 
+            } else { 
+                @() 
+            }
             
             [PSCustomObject]@{
                 Name = $nic.Name
