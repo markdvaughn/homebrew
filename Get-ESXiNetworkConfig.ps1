@@ -109,11 +109,12 @@ foreach ($vmHost in $vmHosts) {
                 $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
             }
             $vmkList = if ($relatedVmk) {
-                $vmkArray = $relatedVmk | ForEach-Object { 
+                # Collect results into an array explicitly before joining
+                $vmkArray = @($relatedVmk | ForEach-Object { 
                     $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
                     "$($_.Name) (VLAN $vlan)"
-                }
-                $vmkArray -join ', '
+                })
+                [String]::Join(', ', $vmkArray)
             } else {
                 'None'
             }
