@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.5
+    Version: 1.0.6
     Last Updated: February 24, 2025
 #>
 
@@ -183,8 +183,9 @@ foreach ($vmHost in $vmHosts) {
         $dvSwitchData = foreach ($dvSwitch in $dvSwitches) {
             $security = $dvSwitch | Get-VDSecurityPolicy
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
-            # Get physical NICs (uplinks) associated with this dvSwitch for this host
-            $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost -DistributedSwitch $dvSwitch | Where-Object { $_.DeviceType -eq 'Physical' }
+            # Get physical NICs (uplinks) associated with this vDS for this host
+            $dvUplinkPortGroup = $dvSwitch.ExtensionData.Config.UplinkPortgroup | ForEach-Object { Get-View $_ }
+            $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost | Where-Object { $_.Name -in ($dvUplinkPortGroup | ForEach-Object { $_.Config.UplinkPort | ForEach-Object { $_.Name } }) }
             $uplinkNames = if ($dvUplinks) {
                 $uplinkArray = @($dvUplinks | ForEach-Object { $_.Name })
                 Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($uplinkArray -join ', ')"
