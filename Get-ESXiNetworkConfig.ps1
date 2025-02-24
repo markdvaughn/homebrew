@@ -22,7 +22,7 @@
     HTML files named "NetworkConfig_<hostname>_<timestamp>.html" for each ESXi host.
 
 .NOTES
-    - Requires VMware PowerCLI module to be installed.
+    - Requires VMware PowerCLI module to be installed. Install with: Install-Module -Name VMware.PowerCLI
     - Must be run with sufficient vCenter permissions to view host configurations.
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
@@ -30,8 +30,6 @@
     Version: 1.0
     Last Updated: February 24, 2025
 #>
-
-#Requires -Modules VMware.PowerCLI
 
 # Suppress PowerCLI welcome message for cleaner output
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -97,9 +95,22 @@ foreach ($vmHost in $vmHosts) {
         # --- Standard vSwitch Configuration ---
         $htmlContent.Add('<h2 id="vSwitch">Standard vSwitches</h2>') | Out-Null
         $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
+        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
+        
         $vSwitchData = foreach ($vSwitch in $vSwitches) {
             $security = $vSwitch | Get-SecurityPolicy
             $teaming = $vSwitch | Get-NicTeamingPolicy
+            
+            # Get VMkernel adapters and VLANs associated with this vSwitch
+            $relatedVmk = $vmkAdapters | Where-Object { 
+                $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
+            }
+            $vmkList = $relatedVmk | ForEach-Object { 
+                $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
+                "$($_.Name) (VLAN $vlan)"
+            } -join ', '
+            if (-not $vmkList) { $vmkList = 'None' }
+
             [PSCustomObject]@{
                 Name = $vSwitch.Name
                 Ports = $vSwitch.NumPorts
@@ -111,13 +122,13 @@ foreach ($vmHost in $vmHosts) {
                 LoadBalancing = $teaming.LoadBalancingPolicy
                 ActiveNICs = ($teaming.ActiveNic -join ', ')
                 StandbyNICs = ($teaming.StandbyNic -join ', ')
+                VMkernels_VLANs = $vmkList
             }
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
-        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
         $vmkData = foreach ($vmk in $vmkAdapters) {
             [PSCustomObject]@{
                 Name = $vmk.Name
