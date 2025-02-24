@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.8
+    Version: 1.0.9
     Last Updated: February 24, 2025
 #>
 
@@ -76,7 +76,7 @@ foreach ($vmHost in $vmHosts) {
     Write-Host "Processing network configuration for host: $($vmHost.Name)"
     
     # Get current date and time for subheading
-    $reportDateTime = Get-Date -Format "yyyyMMdd_HHmmss"
+    $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
     # Initialize HTML content array with main heading and italicized datetime subheading
     $htmlContent = [System.Collections.ArrayList]::new()
@@ -183,11 +183,15 @@ foreach ($vmHost in $vmHosts) {
         $dvSwitchData = foreach ($dvSwitch in $dvSwitches) {
             $security = $dvSwitch | Get-VDSecurityPolicy
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
-            # Get physical NICs (uplinks) associated with this vDS for this host via ProxySwitch
+            # Get physical NICs (uplinks) associated with this vDS for this host
             $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
             $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
+            Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
+            if ($proxySwitch) {
+                Write-Host "Debug: Pnic for $($dvSwitch.Name): $($proxySwitch.Pnic -join ', ')"
+            }
             $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
-                $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }  # Extract vmnicX from e.g., "key-vim.host.PhysicalNic-vmnicX"
+                $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
             } else {
                 @()
             }
