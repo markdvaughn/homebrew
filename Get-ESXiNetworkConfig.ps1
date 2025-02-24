@@ -203,8 +203,9 @@ foreach ($vmHost in $vmHosts) {
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
+        $dnsServersList = if ($networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
         $dnsRoutingData = [PSCustomObject]@{
-            DNSServers = [String]::Join(', ', ($networkConfig.DnsAddress ? $networkConfig.DnsAddress : @()))
+            DNSServers = [String]::Join(', ', $dnsServersList)
             StaticRoutes = [String]::Join(', ', @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }))
         }
         $htmlContent.Add(($dnsRoutingData | ConvertTo-Html -Fragment)) | Out-Null
@@ -219,8 +220,9 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="ntp">NTP Settings</h2>') | Out-Null
         $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
+        $ntpServersList = if ($ntpConfig) { $ntpConfig } else { @() }
         $ntpData = [PSCustomObject]@{
-            NTPServers = [String]::Join(', ', ($ntpConfig ? $ntpConfig : @()))
+            NTPServers = [String]::Join(', ', $ntpServersList)
             Running = $ntpService.Running
             Policy = $ntpService.Policy
         }
