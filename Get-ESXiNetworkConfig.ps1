@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.6
+    Version: 1.0.7
     Last Updated: February 24, 2025
 #>
 
@@ -184,12 +184,15 @@ foreach ($vmHost in $vmHosts) {
             $security = $dvSwitch | Get-VDSecurityPolicy
             $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
             # Get physical NICs (uplinks) associated with this vDS for this host
-            $dvUplinkPortGroup = $dvSwitch.ExtensionData.Config.UplinkPortgroup | ForEach-Object { Get-View $_ }
-            $dvUplinks = Get-VMHostNetworkAdapter -VMHost $vmHost | Where-Object { $_.Name -in ($dvUplinkPortGroup | ForEach-Object { $_.Config.UplinkPort | ForEach-Object { $_.Name } }) }
+            $hostConfig = $dvSwitch.ExtensionData.Config.Host | Where-Object { $_.Config.Host.Value -eq $vmHost.ExtensionData.MoRef.Value }
+            $dvUplinks = if ($hostConfig -and $hostConfig.Config.Backing.Pnic) {
+                $hostConfig.Config.Backing.Pnic | ForEach-Object { $_.Split('-')[-1] }  # Extract vmnicX from e.g., "key-vim.host.PhysicalNic-vmnicX"
+            } else {
+                @()
+            }
             $uplinkNames = if ($dvUplinks) {
-                $uplinkArray = @($dvUplinks | ForEach-Object { $_.Name })
-                Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($uplinkArray -join ', ')"
-                [String]::Join(', ', $uplinkArray)
+                Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($dvUplinks -join ', ')"
+                [String]::Join(', ', $dvUplinks)
             } else {
                 'None'
             }
