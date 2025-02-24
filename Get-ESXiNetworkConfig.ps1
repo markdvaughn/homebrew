@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0
+    Version: 1.0.0
     Last Updated: February 24, 2025
 #>
 
