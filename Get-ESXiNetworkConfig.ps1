@@ -109,7 +109,6 @@ foreach ($vmHost in $vmHosts) {
                 $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
             }
             $vmkList = if ($relatedVmk) {
-                # Collect results into an array explicitly before joining
                 $vmkArray = @($relatedVmk | ForEach-Object { 
                     $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
                     "$($_.Name) (VLAN $vlan)"
@@ -119,17 +118,22 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
+            # Ensure arrays are not null before joining
+            $nicList = if ($vSwitch.Nic) { $vSwitch.Nic } else { @() }
+            $activeNicList = if ($teaming.ActiveNic) { $teaming.ActiveNic } else { @() }
+            $standbyNicList = if ($teaming.StandbyNic) { $teaming.StandbyNic } else { @() }
+
             [PSCustomObject]@{
                 Name = $vSwitch.Name
                 Ports = $vSwitch.NumPorts
                 MTU = $vSwitch.MTU
-                NICs = [String]::Join(', ', $vSwitch.Nic)
+                NICs = [String]::Join(', ', $nicList)
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
                 LoadBalancing = $teaming.LoadBalancingPolicy
-                ActiveNICs = [String]::Join(', ', $teaming.ActiveNic)
-                StandbyNICs = [String]::Join(', ', $teaming.StandbyNic)
+                ActiveNICs = [String]::Join(', ', $activeNicList)
+                StandbyNICs = [String]::Join(', ', $standbyNicList)
                 VMkernels_VLANs = $vmkList
             }
         }
@@ -177,6 +181,10 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
+            # Ensure arrays are not null before joining
+            $activeUplinkList = if ($teaming.ActiveUplink) { $teaming.ActiveUplink } else { @() }
+            $standbyUplinkList = if ($teaming.StandbyUplink) { $teaming.StandbyUplink } else { @() }
+
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
                 Ports = $dvSwitch.NumPorts
@@ -186,8 +194,8 @@ foreach ($vmHost in $vmHosts) {
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
                 LoadBalancing = $teaming.LoadBalancingPolicy
-                ActiveNICs = [String]::Join(', ', $teaming.ActiveUplink)
-                StandbyNICs = [String]::Join(', ', $teaming.StandbyUplink)
+                ActiveNICs = [String]::Join(', ', $activeUplinkList)
+                StandbyNICs = [String]::Join(', ', $standbyUplinkList)
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
@@ -196,7 +204,7 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
         $networkConfig = Get-VMHostNetwork -VMHost $vmHost
         $dnsRoutingData = [PSCustomObject]@{
-            DNSServers = [String]::Join(', ', $networkConfig.DnsAddress)
+            DNSServers = [String]::Join(', ', ($networkConfig.DnsAddress ? $networkConfig.DnsAddress : @()))
             StaticRoutes = [String]::Join(', ', @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }))
         }
         $htmlContent.Add(($dnsRoutingData | ConvertTo-Html -Fragment)) | Out-Null
@@ -212,7 +220,7 @@ foreach ($vmHost in $vmHosts) {
         $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
         $ntpData = [PSCustomObject]@{
-            NTPServers = [String]::Join(', ', $ntpConfig)
+            NTPServers = [String]::Join(', ', ($ntpConfig ? $ntpConfig : @()))
             Running = $ntpService.Running
             Policy = $ntpService.Policy
         }
@@ -234,11 +242,13 @@ foreach ($vmHost in $vmHosts) {
             $hint = $hintTable[$nic.Name]
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
+            $vSwitchList = @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name })
+            
             [PSCustomObject]@{
                 Name = $nic.Name
                 MAC = $nic.Mac
                 LinkSpeed = "$($nic.LinkSpeedMb) Mb/s"
-                vSwitches = [String]::Join(', ', @($vSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }))
+                vSwitches = [String]::Join(', ', $vSwitchList)
                 CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
                 CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
                 CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
