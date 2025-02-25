@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.17
+    Version: 1.0.18
     Last Updated: February 24, 2025
 #>
 
@@ -153,13 +153,19 @@ foreach ($vmHost in $vmHosts) {
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
-        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
+        Write-Host "Debug: Host Default Gateway (hostNetwork): $($hostNetwork.DefaultGateway)"
+        # Fetch default gateway from routing table as fallback
+        $routeDefaultGateway = ($vmHost | Get-VMHostRoute | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
+        Write-Host "Debug: Host Default Gateway (route): $($routeDefaultGateway)"
+
         $vmkData = foreach ($vmk in $vmkAdapters) {
             # Debug output to check raw values
             Write-Host "Debug: $($vmk.Name) IPGateway: $($vmk.IPGateway), ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
-            # Use IPGateway if set, otherwise fall back to host's default gateway for management
+            # Use IPGateway if set, otherwise fall back to host's default gateway from route or hostNetwork
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
+            } elseif ($vmk.ManagementTrafficEnabled -and $routeDefaultGateway -and $routeDefaultGateway -ne '0.0.0.0') { 
+                $routeDefaultGateway 
             } elseif ($vmk.ManagementTrafficEnabled -and $hostNetwork.DefaultGateway -and $hostNetwork.DefaultGateway -ne '0.0.0.0') { 
                 $hostNetwork.DefaultGateway 
             } else { 
@@ -324,36 +330,4 @@ foreach ($vmHost in $vmHosts) {
                 } | ForEach-Object { $_.Name }
             )
             
-            Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
-            
-            [PSCustomObject]@{
-                Name = $nic.Name
-                MAC = $nic.Mac
-                LinkSpeed = "$($nic.LinkSpeedMb) Mb/s"
-                vSwitches = [String]::Join(', ', $vSwitchList)
-                CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
-                CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
-                CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
-                LLDP_Switch = if ($lldp) { $lldp.SystemName } else { 'N/A' }
-                LLDP_Port = if ($lldp) { $lldp.PortId } else { 'N/A' }
-                LLDP_Hardware = if ($lldp) { $lldp.ChassisId } else { 'N/A' }
-            }
-        }
-        $htmlContent.Add(($nicData | ConvertTo-Html -Fragment)) | Out-Null
-
-        # Close HTML
-        $htmlContent.Add('</body></html>') | Out-Null
-
-        # Write to file
-        $fileName = "NetworkConfig_$($vmHost.Name)_$timestamp.html"
-        $htmlContent | Out-File -FilePath $fileName -Encoding UTF8
-        Write-Host "Generated report: $fileName"
-    }
-    catch {
-        Write-Warning "Error processing $($vmHost.Name): $_"
-    }
-}
-
-# Disconnect from vCenter without confirmation
-Disconnect-VIServer -Server $vCenterServer -Confirm:$false
-Write-Host "Disconnected from $vCenterServer"
+            Write-Host "Joining vSwitchList for $($
