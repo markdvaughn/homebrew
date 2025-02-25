@@ -289,17 +289,15 @@ foreach ($vmHost in $vmHosts) {
             }
         }
 
-        # Sort standard port groups by vSwitch name then VLAN ID
-        $sortedStandard = $standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
-
-        # Sort distributed port groups by vSwitch name then VLAN ID
-        $sortedDistributed = $distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
-
-        # Combine sorted collections (standard first, then distributed)
-        if ($sortedStandard.Count -gt 0) {
+        # Sort and add standard port groups
+        if ($standardPortGroups.Count -gt 0) {
+            $sortedStandard = $standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
             $vmPortGroupData.AddRange($sortedStandard)
         }
-        if ($sortedDistributed.Count -gt 0) {
+
+        # Sort and add distributed port groups
+        if ($distributedPortGroups.Count -gt 0) {
+            $sortedDistributed = $distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
             $vmPortGroupData.AddRange($sortedDistributed)
         }
 
