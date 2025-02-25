@@ -6,8 +6,8 @@
     This script connects to a vCenter server, collects detailed network configuration data 
     for all managed ESXi hosts, and generates individual HTML reports for each host. The 
     reports include standard and distributed vSwitch configurations, VMkernel interfaces, 
-    DNS and routing details, firewall rules, NTP settings, and physical NIC information 
-    with CDP/LLDP data.
+    VM port groups, DNS and routing details, firewall rules, NTP settings, and physical NIC 
+    information with CDP/LLDP data.
 
 .PARAMETER None
     This script does not accept parameters. It prompts for vCenter server details 
@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.23
+    Version: 1.0.24
     Last Updated: February 25, 2025
 #>
 
@@ -87,6 +87,7 @@ foreach ($vmHost in $vmHosts) {
     $toc += '<a href="#vSwitch">Standard vSwitches</a>'
     $toc += '<a href="#vmkernel">VMkernel Interfaces</a>'
     $toc += '<a href="#dvSwitch">Distributed vSwitches</a>'
+    $toc += '<a href="#vmPortGroups">VM Port Groups</a>'
     $toc += '<a href="#dnsRouting">DNS and Routing</a>'
     $toc += '<a href="#firewall">Firewall Rules</a>'
     $toc += '<a href="#ntp">NTP Settings</a>'
@@ -120,16 +121,6 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Get virtual machine port groups (exclude VMkernel port groups)
-            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { $_.Name -notin $vmkPortGroupNames }
-            $vmPgList = if ($vmPortGroups) {
-                $vmPgArray = @($vmPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VLanId))" })
-                Write-Host "Joining vmPgArray for $($vSwitch.Name): $($vmPgArray -join ', ')"
-                $vmPgArray -join '<br>'  # Join with <br> for raw HTML rendering
-            } else {
-                'None'
-            }
-
             # Ensure arrays are not null before joining, with explicit $teaming check
             $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
             $activeNicList = @()
@@ -157,7 +148,6 @@ foreach ($vmHost in $vmHosts) {
                 ActiveNICs = [String]::Join(', ', $activeNicList)
                 StandbyNICs = [String]::Join(', ', $standbyNicList)
                 VMkernels_VLANs = $vmkList
-                VMPortGroups = $vmPgList
             }
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
@@ -226,16 +216,6 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Get virtual machine port groups for distributed vSwitch
-            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch
-            $dvPgList = if ($dvPortGroups) {
-                $dvPgArray = @($dvPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VlanConfiguration.VlanId))" })
-                Write-Host "Joining dvPgArray for $($dvSwitch.Name): $($dvPgArray -join ', ')"
-                $dvPgArray -join '<br>'  # Join with <br> for raw HTML rendering
-            } else {
-                'None'
-            }
-
             # Get active and standby NICs from teaming policy
             $activeNicList = @()
             $standbyNicList = @()
@@ -273,10 +253,46 @@ foreach ($vmHost in $vmHosts) {
                 LoadBalancing = $loadBalancing
                 ActiveNICs = [String]::Join(', ', $activeNicList)
                 StandbyNICs = [String]::Join(', ', $standbyNicList)
-                VMPortGroups = $dvPgList
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
+
+        # --- VM Port Groups ---
+        $htmlContent.Add('<h2 id="vmPortGroups">VM Port Groups</h2>') | Out-Null
+        $vmPortGroupData = @()
+
+        # Standard vSwitch VM port groups
+        foreach ($vSwitch in $vSwitches) {
+            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { $_.Name -notin $vmkPortGroupNames }
+            foreach ($pg in $vmPortGroups) {
+                $vmPortGroupData += [PSCustomObject]@{
+                    Name = $pg.Name
+                    'VLAN ID' = $pg.VLanId
+                    'Associated vSwitch' = $vSwitch.Name
+                }
+            }
+        }
+
+        # Distributed vSwitch VM port groups
+        foreach ($dvSwitch in $dvSwitches) {
+            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch
+            foreach ($pg in $dvPortGroups) {
+                $vmPortGroupData += [PSCustomObject]@{
+                    Name = $pg.Name
+                    'VLAN ID' = $pg.VlanConfiguration.VlanId
+                    'Associated vSwitch' = $dvSwitch.Name
+                }
+            }
+        }
+
+        if ($vmPortGroupData.Count -eq 0) {
+            $vmPortGroupData = @([PSCustomObject]@{
+                Name = 'None'
+                'VLAN ID' = 'N/A'
+                'Associated vSwitch' = 'N/A'
+            })
+        }
+        $htmlContent.Add(($vmPortGroupData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
