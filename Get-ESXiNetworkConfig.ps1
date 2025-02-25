@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.17i
+    Version: 1.0.17j
     Last Updated: February 25, 2025
 #>
 
@@ -330,11 +330,12 @@ foreach ($vmHost in $vmHosts) {
             )
             
             Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
+            Write-Host "Debug: $($nic.Name) LinkSpeedMb: $($nic.LinkSpeedMb)"
             
             [PSCustomObject]@{
                 Name = $nic.Name
                 MAC = $nic.Mac
-                LinkSpeed = "$($nic.LinkSpeedMb) Mb/s"
+                LinkSpeed = if ($null -ne $nic.LinkSpeedMb) { "$($nic.LinkSpeedMb) Mb/s" } else { 'Unknown' }
                 vSwitches = [String]::Join(', ', $vSwitchList)
                 CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
                 CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
