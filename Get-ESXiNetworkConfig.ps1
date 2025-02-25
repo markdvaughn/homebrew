@@ -25,10 +25,10 @@
     - Requires VMware PowerCLI module to be installed. Install with: Install-Module -Name VMware.PowerCLI
     - Must be run with sufficient vCenter permissions to view host configurations.
     - Ignores invalid SSL certificates by default.
-    - Current date used in script execution: February 24, 2025
+    - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.17h
-    Last Updated: February 24, 2025
+    Version: 1.0.17i
+    Last Updated: February 25, 2025
 #>
 
 # Suppress PowerCLI welcome message for cleaner output
@@ -294,7 +294,7 @@ foreach ($vmHost in $vmHosts) {
         # --- Physical NIC Hardware Information with Network Hints ---
         $htmlContent.Add('<h2 id="physicalNics">Physical NICs</h2>') | Out-Null
         $physicalNics = Get-VMHostNetworkAdapter -VMHost $vmHost -Physical
-        $standardSwitches = Get-VMHostNetworkAdapter -VMHost $vmHost -Standard
+        $standardSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
         $distributedSwitches = Get-VDSwitch -VMHost $vmHost
         
         # Pre-fetch ProxySwitch data for all distributed switches
