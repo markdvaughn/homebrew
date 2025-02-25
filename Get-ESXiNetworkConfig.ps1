@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.12
+    Version: 1.0.13
     Last Updated: February 24, 2025
 #>
 
@@ -287,7 +287,7 @@ foreach ($vmHost in $vmHosts) {
         $standardSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
         $distributedSwitches = Get-VDSwitch -VMHost $vmHost
         
-        # Get Network Hints using current method
+        # Get Network Hints and ProxySwitch info
         $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
         $networkHints = $netSystem.QueryNetworkHint($null)
         $hintTable = @{}
@@ -306,7 +306,7 @@ foreach ($vmHost in $vmHosts) {
             ) + @(
                 $distributedSwitches | Where-Object { 
                     $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $_.ExtensionData.Uuid }
-                    $proxySwitch -and $proxySwitch.Pnic -contains "key-vim.host.PhysicalNic-$($nic.Name)"
+                    $proxySwitch -and ($proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }) -contains $nic.Name
                 } | ForEach-Object { $_.Name }
             )
             
@@ -322,7 +322,7 @@ foreach ($vmHost in $vmHosts) {
                 CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
                 LLDP_Switch = if ($lldp) { $lldp.SystemName } else { 'N/A' }
                 LLDP_Port = if ($lldp) { $lldp.PortId } else { 'N/A' }
-                LLDP_Hardware = if ($lldl) { $lldp.ChassisId } else { 'N/A' }
+                LLDP_Hardware = if ($lldp) { $lldp.ChassisId } else { 'N/A' }
             }
         }
         $htmlContent.Add(($nicData | ConvertTo-Html -Fragment)) | Out-Null
