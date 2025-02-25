@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.19
+    Version: 1.0.20
     Last Updated: February 25, 2025
 #>
 
@@ -99,6 +99,7 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vSwitch">Standard vSwitches</h2>') | Out-Null
         $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
+        $vmkPortGroupNames = $vmkAdapters | ForEach-Object { $_.PortGroupName }
         
         $vSwitchData = foreach ($vSwitch in $vSwitches) {
             $security = $vSwitch | Get-SecurityPolicy
@@ -119,12 +120,12 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
-            # Get virtual machine port groups
-            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { -not $_.VMHostId }  # Exclude VMkernel port groups
+            # Get virtual machine port groups (exclude VMkernel port groups)
+            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { $_.Name -notin $vmkPortGroupNames }
             $vmPgList = if ($vmPortGroups) {
                 $vmPgArray = @($vmPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VLanId))" })
                 Write-Host "Joining vmPgArray for $($vSwitch.Name): $($vmPgArray -join ', ')"
-                [String]::Join(', ', $vmPgArray)
+                [String]::Join('<br>', $vmPgArray)  # Use <br> for line breaks in HTML
             } else {
                 'None'
             }
@@ -230,7 +231,7 @@ foreach ($vmHost in $vmHosts) {
             $dvPgList = if ($dvPortGroups) {
                 $dvPgArray = @($dvPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VlanConfiguration.VlanId))" })
                 Write-Host "Joining dvPgArray for $($dvSwitch.Name): $($dvPgArray -join ', ')"
-                [String]::Join(', ', $dvPgArray)
+                [String]::Join('<br>', $dvPgArray)  # Use <br> for line breaks in HTML
             } else {
                 'None'
             }
