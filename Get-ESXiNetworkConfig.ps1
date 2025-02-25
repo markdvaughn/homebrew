@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.17j
+    Version: 1.0.17k
     Last Updated: February 25, 2025
 #>
 
@@ -307,11 +307,16 @@ foreach ($vmHost in $vmHosts) {
             }
         }
 
-        # Get Network Hints
+        # Get Network Hints and Physical NIC speeds via Get-View
         $networkHints = $netSystem.QueryNetworkHint($null)
         $hintTable = @{}
         foreach ($hint in $networkHints) {
             $hintTable[$hint.Device] = $hint
+        }
+        $nicSpeeds = @{}
+        $hostView = Get-View -Id $vmHost.Id
+        foreach ($pnic in $hostView.Config.Network.Pnic) {
+            $nicSpeeds[$pnic.Device] = $pnic.LinkSpeed.SpeedMb
         }
 
         $nicData = foreach ($nic in $physicalNics) {
@@ -330,12 +335,12 @@ foreach ($vmHost in $vmHosts) {
             )
             
             Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
-            Write-Host "Debug: $($nic.Name) LinkSpeedMb: $($nic.LinkSpeedMb)"
+            Write-Host "Debug: $($nic.Name) LinkSpeedMb: '$($nic.LinkSpeedMb)', SpeedMb from View: '$($nicSpeeds[$nic.Name])'"
             
             [PSCustomObject]@{
                 Name = $nic.Name
                 MAC = $nic.Mac
-                LinkSpeed = if ($null -ne $nic.LinkSpeedMb) { "$($nic.LinkSpeedMb) Mb/s" } else { 'Unknown' }
+                LinkSpeed = if ($null -ne $nicSpeeds[$nic.Name]) { "$($nicSpeeds[$nic.Name]) Mb/s" } else { 'Unknown' }
                 vSwitches = [String]::Join(', ', $vSwitchList)
                 CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
                 CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
