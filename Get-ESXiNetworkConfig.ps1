@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.14
+    Version: 1.0.15
     Last Updated: February 24, 2025
 #>
 
@@ -155,11 +155,8 @@ foreach ($vmHost in $vmHosts) {
         # Get host network config for VMkernel-specific gateway
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         $vmkData = foreach ($vmk in $vmkAdapters) {
-            # Find the VMkernel-specific gateway from IpRouteConfig
-            $vmkGateway = $hostNetwork.ExtensionData.IpRoute | Where-Object {
-                $_.Network -eq '0.0.0.0/0' -and $_.Gateway -ne $hostNetwork.DefaultGateway
-            } | Select-Object -First 1 -ExpandProperty Gateway
-            if (-not $vmkGateway) { $vmkGateway = 'N/A' }  # Default to N/A if no specific gateway
+            # Use the VMkernel adapter's configured gateway directly
+            $vmkGateway = if ($vmk.DefaultGateway) { $vmk.DefaultGateway } else { 'N/A' }
 
             [PSCustomObject]@{
                 Name = $vmk.Name
@@ -167,7 +164,7 @@ foreach ($vmHost in $vmHosts) {
                 SubnetMask = $vmk.SubnetMask
                 MAC = $vmk.Mac
                 PortGroup = $vmk.PortGroupName
-                Gateway = $vmkGateway  # VMkernel-specific gateway
+                Gateway = $vmkGateway
                 VMotion = $vmk.VMotionEnabled
                 FTLogging = $vmk.FaultToleranceLoggingEnabled
                 Management = $vmk.ManagementTrafficEnabled
