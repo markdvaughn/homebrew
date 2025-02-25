@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.22
+    Version: 1.0.23
     Last Updated: February 25, 2025
 #>
 
@@ -66,7 +66,6 @@ $css = @"
     tr:nth-child(even) { background-color: #f2f2f2; }
     .toc { margin-bottom: 20px; }
     .toc a { margin-right: 15px; }
-    ul { margin: 0; padding-left: 20px; }
 </style>
 "@
 
@@ -126,9 +125,9 @@ foreach ($vmHost in $vmHosts) {
             $vmPgList = if ($vmPortGroups) {
                 $vmPgArray = @($vmPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VLanId))" })
                 Write-Host "Joining vmPgArray for $($vSwitch.Name): $($vmPgArray -join ', ')"
-                $vmPgArray  # Pass array directly for list formatting
+                $vmPgArray -join '<br>'  # Join with <br> for raw HTML rendering
             } else {
-                @('None')
+                'None'
             }
 
             # Ensure arrays are not null before joining, with explicit $teaming check
@@ -161,7 +160,7 @@ foreach ($vmHost in $vmHosts) {
                 VMPortGroups = $vmPgList
             }
         }
-        $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment -As List)) | Out-Null
+        $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
@@ -232,9 +231,9 @@ foreach ($vmHost in $vmHosts) {
             $dvPgList = if ($dvPortGroups) {
                 $dvPgArray = @($dvPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VlanConfiguration.VlanId))" })
                 Write-Host "Joining dvPgArray for $($dvSwitch.Name): $($dvPgArray -join ', ')"
-                $dvPgArray  # Pass array directly for list formatting
+                $dvPgArray -join '<br>'  # Join with <br> for raw HTML rendering
             } else {
-                @('None')
+                'None'
             }
 
             # Get active and standby NICs from teaming policy
@@ -277,7 +276,7 @@ foreach ($vmHost in $vmHosts) {
                 VMPortGroups = $dvPgList
             }
         }
-        $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment -As List)) | Out-Null
+        $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
