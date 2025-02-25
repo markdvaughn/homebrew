@@ -259,40 +259,62 @@ foreach ($vmHost in $vmHosts) {
 
         # --- VM Port Groups ---
         $htmlContent.Add('<h2 id="vmPortGroups">VM Port Groups</h2>') | Out-Null
-        $vmPortGroupData = @()
+        $vmPortGroupData = [System.Collections.ArrayList]::new()
 
         # Standard vSwitch VM port groups
+        $standardPortGroups = [System.Collections.ArrayList]::new()
         foreach ($vSwitch in $vSwitches) {
             $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { $_.Name -notin $vmkPortGroupNames }
             foreach ($pg in $vmPortGroups) {
-                $vmPortGroupData += [PSCustomObject]@{
+                $standardPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
                     'VLAN ID' = $pg.VLanId
                     'Associated vSwitch' = $vSwitch.Name
-                }
+                    SwitchType = 'Standard'
+                }) | Out-Null
             }
         }
 
         # Distributed vSwitch VM port groups
+        $distributedPortGroups = [System.Collections.ArrayList]::new()
         foreach ($dvSwitch in $dvSwitches) {
             $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch
             foreach ($pg in $dvPortGroups) {
-                $vmPortGroupData += [PSCustomObject]@{
+                $distributedPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
                     'VLAN ID' = $pg.VlanConfiguration.VlanId
                     'Associated vSwitch' = $dvSwitch.Name
-                }
+                    SwitchType = 'Distributed'
+                }) | Out-Null
             }
         }
 
+        # Sort standard port groups by vSwitch name then VLAN ID
+        $sortedStandard = $standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
+
+        # Sort distributed port groups by vSwitch name then VLAN ID
+        $sortedDistributed = $distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
+
+        # Combine sorted collections (standard first, then distributed)
+        if ($sortedStandard.Count -gt 0) {
+            $vmPortGroupData.AddRange($sortedStandard)
+        }
+        if ($sortedDistributed.Count -gt 0) {
+            $vmPortGroupData.AddRange($sortedDistributed)
+        }
+
+        # Handle empty case
         if ($vmPortGroupData.Count -eq 0) {
-            $vmPortGroupData = @([PSCustomObject]@{
+            $vmPortGroupData.Add([PSCustomObject]@{
                 Name = 'None'
                 'VLAN ID' = 'N/A'
                 'Associated vSwitch' = 'N/A'
-            })
+                SwitchType = 'N/A'
+            }) | Out-Null
         }
-        $htmlContent.Add(($vmPortGroupData | ConvertTo-Html -Fragment)) | Out-Null
+
+        # Convert to HTML (excluding SwitchType from display)
+        $htmlContent.Add(($vmPortGroupData | Select-Object Name, 'VLAN ID', 'Associated vSwitch' | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
