@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.17c
+    Version: 1.0.17d
     Last Updated: February 24, 2025
 #>
 
@@ -154,7 +154,9 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
-        $defaultGateway = ($vmHost | Get-VMHostRoute | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
+        $routes = $vmHost | Get-VMHostRoute
+        Write-Host "Debug: Full Routes: $($routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" } | Join-String -Separator ', ')"
+        $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
         Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
             # Debug output to check raw values
