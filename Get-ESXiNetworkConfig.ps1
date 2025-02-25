@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.17f
+    Version: 1.0.17g
     Last Updated: February 24, 2025
 #>
 
@@ -157,11 +157,11 @@ foreach ($vmHost in $vmHosts) {
         $routes = $vmHost | Get-VMHostRoute
         $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
         Write-Host "Debug: Full Routes: $($routeStrings -join ', ')"
-        $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
+        $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0/0' -or $_.Destination -eq 'default' } | Select-Object -First 1).Gateway
         Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
             # Debug output to check raw values
-            Write-Host "Debug: $($vmk.Name) IPGateway: $($vmk.IPGateway), ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
+            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
             # Use IPGateway if set, otherwise fall back to host's default gateway from route for management
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
@@ -242,9 +242,9 @@ foreach ($vmHost in $vmHosts) {
 
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
-                Ports = $vSwitch.NumPorts
-                MTU = $vSwitch.Mtu
-                NICs = [String]::Join(', ', $nicList)
+                Ports = $dvSwitch.NumPorts
+                MTU = $dvSwitch.Mtu
+                NICs = $uplinkNames  # Corrected to use uplinkNames
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
                 MacChanges = $security.MacChanges
