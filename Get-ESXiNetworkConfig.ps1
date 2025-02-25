@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.16
+    Version: 1.0.17
     Last Updated: February 24, 2025
 #>
 
@@ -152,13 +152,15 @@ foreach ($vmHost in $vmHosts) {
 
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
-        # Get host network config for VMkernel-specific gateway
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
+        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
-            # Use IPGateway if set, otherwise fall back to host's default gateway if applicable
+            # Debug output to check raw values
+            Write-Host "Debug: $($vmk.Name) IPGateway: $($vmk.IPGateway), ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
+            # Use IPGateway if set, otherwise fall back to host's default gateway for management
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
-            } elseif ($vmk.ManagementTrafficEnabled -and $hostNetwork.DefaultGateway) { 
+            } elseif ($vmk.ManagementTrafficEnabled -and $hostNetwork.DefaultGateway -and $hostNetwork.DefaultGateway -ne '0.0.0.0') { 
                 $hostNetwork.DefaultGateway 
             } else { 
                 'N/A' 
