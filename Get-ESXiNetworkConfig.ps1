@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.17b
+    Version: 1.0.17c
     Last Updated: February 24, 2025
 #>
 
@@ -155,6 +155,7 @@ foreach ($vmHost in $vmHosts) {
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
         $defaultGateway = ($vmHost | Get-VMHostRoute | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
+        Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
             # Debug output to check raw values
             Write-Host "Debug: $($vmk.Name) IPGateway: $($vmk.IPGateway), ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
@@ -238,8 +239,8 @@ foreach ($vmHost in $vmHosts) {
 
             [PSCustomObject]@{
                 Name = $dvSwitch.Name
-                Ports = $dvSwitch.NumPorts
-                MTU = $dvSwitch.Mtu
+                Ports = $vSwitch.NumPorts
+                MTU = $vSwitch.Mtu
                 NICs = [String]::Join(', ', $nicList)
                 Promiscuous = $security.AllowPromiscuous
                 ForgedTransmits = $security.ForgedTransmits
