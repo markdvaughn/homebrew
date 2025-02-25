@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.17k
+    Version: 1.0.19
     Last Updated: February 25, 2025
 #>
 
@@ -119,6 +119,16 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
+            # Get virtual machine port groups
+            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { -not $_.VMHostId }  # Exclude VMkernel port groups
+            $vmPgList = if ($vmPortGroups) {
+                $vmPgArray = @($vmPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VLanId))" })
+                Write-Host "Joining vmPgArray for $($vSwitch.Name): $($vmPgArray -join ', ')"
+                [String]::Join(', ', $vmPgArray)
+            } else {
+                'None'
+            }
+
             # Ensure arrays are not null before joining, with explicit $teaming check
             $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
             $activeNicList = @()
@@ -146,6 +156,7 @@ foreach ($vmHost in $vmHosts) {
                 ActiveNICs = [String]::Join(', ', $activeNicList)
                 StandbyNICs = [String]::Join(', ', $standbyNicList)
                 VMkernels_VLANs = $vmkList
+                VMPortGroups = $vmPgList
             }
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
@@ -214,6 +225,16 @@ foreach ($vmHost in $vmHosts) {
                 'None'
             }
 
+            # Get virtual machine port groups for distributed vSwitch
+            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch
+            $dvPgList = if ($dvPortGroups) {
+                $dvPgArray = @($dvPortGroups | ForEach-Object { "$($_.Name) (VLAN $($_.VlanConfiguration.VlanId))" })
+                Write-Host "Joining dvPgArray for $($dvSwitch.Name): $($dvPgArray -join ', ')"
+                [String]::Join(', ', $dvPgArray)
+            } else {
+                'None'
+            }
+
             # Get active and standby NICs from teaming policy
             $activeNicList = @()
             $standbyNicList = @()
@@ -251,6 +272,7 @@ foreach ($vmHost in $vmHosts) {
                 LoadBalancing = $loadBalancing
                 ActiveNICs = [String]::Join(', ', $activeNicList)
                 StandbyNICs = [String]::Join(', ', $standbyNicList)
+                VMPortGroups = $dvPgList
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
