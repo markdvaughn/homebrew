@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.17d
+    Version: 1.0.17e
     Last Updated: February 24, 2025
 #>
 
@@ -155,7 +155,7 @@ foreach ($vmHost in $vmHosts) {
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
         $routes = $vmHost | Get-VMHostRoute
-        Write-Host "Debug: Full Routes: $($routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" } | Join-String -Separator ', ')"
+        Write-Host "Debug: Full Routes: $($routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" } -join ', ')"
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0/0' } | Select-Object -First 1).Gateway
         Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
