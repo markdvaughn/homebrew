@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 24, 2025
 
-    Version: 1.0.13
+    Version: 1.0.14
     Last Updated: February 24, 2025
 #>
 
@@ -287,8 +287,17 @@ foreach ($vmHost in $vmHosts) {
         $standardSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
         $distributedSwitches = Get-VDSwitch -VMHost $vmHost
         
-        # Get Network Hints and ProxySwitch info
+        # Pre-fetch ProxySwitch data for all distributed switches
         $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
+        $proxySwitchMap = @{}
+        foreach ($dvs in $distributedSwitches) {
+            $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvs.ExtensionData.Uuid }
+            if ($proxySwitch) {
+                $proxySwitchMap[$dvs.ExtensionData.Uuid] = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
+            }
+        }
+
+        # Get Network Hints
         $networkHints = $netSystem.QueryNetworkHint($null)
         $hintTable = @{}
         foreach ($hint in $networkHints) {
@@ -305,8 +314,8 @@ foreach ($vmHost in $vmHosts) {
                 $standardSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }
             ) + @(
                 $distributedSwitches | Where-Object { 
-                    $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $_.ExtensionData.Uuid }
-                    $proxySwitch -and ($proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }) -contains $nic.Name
+                    $pnicList = $proxySwitchMap[$_.ExtensionData.Uuid]
+                    $pnicList -and $pnicList -contains $nic.Name
                 } | ForEach-Object { $_.Name }
             )
             
