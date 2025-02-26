@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.30
+    Version: 1.0.31
     Last Updated: February 25, 2025
 #>
 
@@ -154,7 +154,7 @@ foreach ($vmHost in $vmHosts) {
                         $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
                         "$($_.Name) (VLAN $vlan)"
                     })
-                    Write-Host "Joining vmkArray for $($vSwitch.Name): $($vmkArray -join ', ')"
+                    Write-Host "Joining vmkArray for $($vSwitch.Name): $([String]::Join(', ', $vmkArray))"
                     [String]::Join(', ', $vmkArray)
                 } else {
                     'None'
@@ -171,9 +171,10 @@ foreach ($vmHost in $vmHosts) {
                     $loadBalancing = if ($null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
                 }
 
-                Write-Host "Joining nicList for $($vSwitch.Name): $($nicList -join ', ')"
-                Write-Host "Joining activeNicList for $($vSwitch.Name): $($activeNicList -join ', ')"
-                Write-Host "Joining standbyNicList for $($vSwitch.Name): $($standbyNicList -join ', ')"
+                # Use String.Join for debug output to handle null gracefully
+                Write-Host "Joining nicList for $($vSwitch.Name): $([String]::Join(', ', $nicList))"
+                Write-Host "Joining activeNicList for $($vSwitch.Name): $([String]::Join(', ', $activeNicList))"
+                Write-Host "Joining standbyNicList for $($vSwitch.Name): $([String]::Join(', ', $standbyNicList))"
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
@@ -221,7 +222,7 @@ foreach ($vmHost in $vmHosts) {
                 $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
                 Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
                 if ($proxySwitch) {
-                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $($proxySwitch.Pnic -join ', ')"
+                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $([String]::Join(', ', $proxySwitch.Pnic))"
                 }
                 
                 $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
@@ -230,7 +231,7 @@ foreach ($vmHost in $vmHosts) {
                     @()
                 }
                 $uplinkNames = if ($dvUplinks) {
-                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($dvUplinks -join ', ')"
+                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $([String]::Join(', ', $dvUplinks))"
                     [String]::Join(', ', $dvUplinks)
                 } else {
                     'None'
@@ -259,8 +260,8 @@ foreach ($vmHost in $vmHosts) {
                     }
                 }
 
-                Write-Host "Joining activeNicList for $($dvSwitch.Name): $($activeNicList -join ', ')"
-                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $($standbyNicList -join ', ')"
+                Write-Host "Joining activeNicList for $($dvSwitch.Name): $([String]::Join(', ', $activeNicList))"
+                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $([String]::Join(', ', $standbyNicList))"
 
                 [PSCustomObject]@{
                     Name = $dvSwitch.Name
@@ -354,8 +355,8 @@ foreach ($vmHost in $vmHosts) {
         $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
         $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute)) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         
-        Write-Host "Joining dnsServersList: $($dnsServersList -join ', ')"
-        Write-Host "Joining staticRoutesList: $($staticRoutesList -join ', ')"
+        Write-Host "Joining dnsServersList: $([String]::Join(', ', $dnsServersList))"
+        Write-Host "Joining staticRoutesList: $([String]::Join(', ', $staticRoutesList))"
         
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
@@ -375,7 +376,7 @@ foreach ($vmHost in $vmHosts) {
         $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         
-        Write-Host "Joining ntpServersList: $($ntpServersList -join ', ')"
+        Write-Host "Joining ntpServersList: $([String]::Join(', ', $ntpServersList))"
         
         $ntpData = [PSCustomObject]@{
             NTPServers = [String]::Join(', ', $ntpServersList)
@@ -427,7 +428,7 @@ foreach ($vmHost in $vmHosts) {
                 } | ForEach-Object { $_.Name }
             )
             
-            Write-Host "Joining vSwitchList for $($nic.Name): $($vSwitchList -join ', ')"
+            Write-Host "Joining vSwitchList for $($nic.Name): $([String]::Join(', ', $vSwitchList))"
             Write-Host "Debug: $($nic.Name) LinkSpeedMb: '$($nic.LinkSpeedMb)', SpeedMb from View: '$($nicSpeeds[$nic.Name])'"
             
             [PSCustomObject]@{
