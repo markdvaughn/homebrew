@@ -27,8 +27,8 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.33
-    Last Updated: February 25, 2025
+    Version: 1.0.34
+    Last Updated: February 26, 2025
 #>
 
 # Suppress PowerCLI welcome message for cleaner output
@@ -44,10 +44,17 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
 $credential = Get-Credential -Message "Enter vCenter credentials"
 
+# Disconnect from any existing vCenter connections to avoid querying the wrong server
+if ($global:DefaultVIServers) {
+    Disconnect-VIServer -Server * -Force -Confirm:$false
+    Write-Host "Disconnected from all previous vCenter servers."
+}
+
 try {
-    # Connect to vCenter with error handling
+    # Connect to the specified vCenter with error handling
     Write-Host "Connecting to $vCenterServer..."
-    Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
+    $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
+    Write-Host "Connected to $vCenterServer successfully."
 }
 catch {
     Write-Warning "Failed to connect to $vCenterServer : $_"
@@ -70,8 +77,8 @@ $css = @"
 </style>
 "@
 
-# Get all ESXi hosts managed by vCenter
-$vmHosts = Get-VMHost | Sort-Object Name
+# Get all ESXi hosts managed by the current vCenter
+$vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
 
 foreach ($vmHost in $vmHosts) {
     Write-Host "Processing network configuration for host: $($vmHost.Name)"
@@ -99,18 +106,16 @@ foreach ($vmHost in $vmHosts) {
     try {
         # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
-        $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
-        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
+        $hostNetwork = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
+        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel -Server $viServer
         Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
-        $routes = $vmHost | Get-VMHostRoute
+        $routes = $vmHost | Get-VMHostRoute -Server $viServer
         $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
         Write-Host "Debug: Full Routes: $([String]::Join(', ', $routeStrings))"
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
         Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
-            # Debug output to check raw values
             Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
-            # Use IPGateway if set, otherwise fall back to host's default gateway from route for management
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
             } elseif ($vmk.ManagementTrafficEnabled -and $defaultGateway -and $defaultGateway -ne '0.0.0.0') { 
@@ -129,7 +134,7 @@ foreach ($vmHost in $vmHosts) {
                 VMotion = $vmk.VMotionEnabled
                 FTLogging = $vmk.FaultToleranceLoggingEnabled
                 Management = $vmk.ManagementTrafficEnabled
-                VLAN = (Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost).VLanId
+                VLAN = (Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
                 MTU = $vmk.MTU
             }
         }
@@ -137,21 +142,20 @@ foreach ($vmHost in $vmHosts) {
 
         # --- Standard vSwitch Configuration ---
         $htmlContent.Add('<h2 id="vSwitch">Standard vSwitches</h2>') | Out-Null
-        $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
+        $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard -Server $viServer
         $vmkPortGroupNames = $vmkAdapters | ForEach-Object { $_.PortGroupName }
         
         $vSwitchData = foreach ($vSwitch in $vSwitches) {
             try {
-                $security = $vSwitch | Get-SecurityPolicy
-                $teaming = $vSwitch | Get-NicTeamingPolicy
+                $security = $vSwitch | Get-SecurityPolicy -Server $viServer
+                $teaming = $vSwitch | Get-NicTeamingPolicy -Server $viServer
                 
-                # Get VMkernel adapters and VLANs associated with this vSwitch
                 $relatedVmk = $vmkAdapters | Where-Object { 
-                    $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
+                    $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch -Server $viServer).Name 
                 }
                 $vmkList = if ($relatedVmk) {
                     $vmkArray = @($relatedVmk | ForEach-Object { 
-                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
+                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
                         "$($_.Name) (VLAN $vlan)"
                     })
                     Write-Host "Joining vmkArray for $($vSwitch.Name): $([String]::Join(', ', $vmkArray))"
@@ -160,7 +164,6 @@ foreach ($vmHost in $vmHosts) {
                     'None'
                 }
 
-                # Debug teaming state
                 Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)"
                 if ($teaming) {
                     Write-Host "Debug: ActiveNic is null: $($teaming.ActiveNic -eq $null)"
@@ -168,18 +171,15 @@ foreach ($vmHost in $vmHosts) {
                     Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')"
                 }
 
-                # Ensure arrays are not null before joining, with explicit fallbacks
                 $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
                 $activeNicList = if ($teaming -and $null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
                 $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                # Debug values before joining
                 Write-Host "Debug: nicList before join: $(if ($nicList) { $nicList -join ', ' } else { 'empty' })"
                 Write-Host "Debug: activeNicList before join: $(if ($activeNicList) { $activeNicList -join ', ' } else { 'empty' })"
                 Write-Host "Debug: standbyNicList before join: $(if ($standbyNicList) { $standbyNicList -join ', ' } else { 'empty' })"
 
-                # Perform joins with explicit array wrapping
                 $nicString = [String]::Join(', ', @($nicList))
                 $activeNicString = [String]::Join(', ', @($activeNicList))
                 $standbyNicString = [String]::Join(', ', @($standbyNicList))
@@ -223,14 +223,13 @@ foreach ($vmHost in $vmHosts) {
 
         # --- Distributed vSwitch Configuration ---
         $htmlContent.Add('<h2 id="dvSwitch">Distributed vSwitches</h2>') | Out-Null
-        $dvSwitches = Get-VDSwitch -VMHost $vmHost
+        $dvSwitches = Get-VDSwitch -VMHost $vmHost -Server $viServer
         $dvSwitchData = if ($dvSwitches.Count -gt 0) {
             foreach ($dvSwitch in $dvSwitches) {
-                $security = $dvSwitch | Get-VDSecurityPolicy
-                $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
+                $security = $dvSwitch | Get-VDSecurityPolicy -Server $viServer
+                $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy -Server $viServer
                 
-                # Get physical NICs (uplinks) from ProxySwitch
-                $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
+                $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
                 $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
                 Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
                 if ($proxySwitch) {
@@ -249,14 +248,12 @@ foreach ($vmHost in $vmHosts) {
                     'None'
                 }
 
-                # Get active and standby NICs from teaming policy
                 $activeNicList = @()
                 $standbyNicList = @()
                 $loadBalancing = 'N/A'
                 if ($null -ne $teaming) {
                     $loadBalancing = $teaming.LoadBalancingPolicy
                     if ($teaming.ActiveUplink -and $proxySwitch -and $proxySwitch.Pnic) {
-                        # Map logical uplinks to physical NICs
                         $uplinkPorts = $dvSwitch.ExtensionData.Config.UplinkPortPolicy.UplinkPortName
                         $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
                         $uplinkMapping = @{}
@@ -266,7 +263,6 @@ foreach ($vmHost in $vmHosts) {
                         $activeNicList = @($teaming.ActiveUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
                         $standbyNicList = @($teaming.StandbyUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
                     }
-                    # If no explicit active/standby, assume all uplinks are active unless standby is specified
                     if (-not $activeNicList -and -not $standbyNicList -and $dvUplinks) {
                         $activeNicList = $dvUplinks
                     }
@@ -308,10 +304,9 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmPortGroups">VM Port Groups</h2>') | Out-Null
         $vmPortGroupData = [System.Collections.ArrayList]::new()
 
-        # Standard vSwitch VM port groups
         $standardPortGroups = [System.Collections.ArrayList]::new()
         foreach ($vSwitch in $vSwitches) {
-            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch | Where-Object { $_.Name -notin $vmkPortGroupNames }
+            $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch -Server $viServer | Where-Object { $_.Name -notin $vmkPortGroupNames }
             foreach ($pg in $vmPortGroups) {
                 $standardPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
@@ -322,10 +317,9 @@ foreach ($vmHost in $vmHosts) {
             }
         }
 
-        # Distributed vSwitch VM port groups
         $distributedPortGroups = [System.Collections.ArrayList]::new()
         foreach ($dvSwitch in $dvSwitches) {
-            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch
+            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
             foreach ($pg in $dvPortGroups) {
                 $distributedPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
@@ -336,19 +330,16 @@ foreach ($vmHost in $vmHosts) {
             }
         }
 
-        # Sort and add standard port groups
         if ($standardPortGroups.Count -gt 0) {
             $sortedStandard = @($standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedStandard)
         }
 
-        # Sort and add distributed port groups
         if ($distributedPortGroups.Count -gt 0) {
             $sortedDistributed = @($distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedDistributed)
         }
 
-        # Handle empty case
         if ($vmPortGroupData.Count -eq 0) {
             $vmPortGroupData.Add([PSCustomObject]@{
                 Name = 'None'
@@ -358,14 +349,13 @@ foreach ($vmHost in $vmHosts) {
             }) | Out-Null
         }
 
-        # Convert to HTML (excluding SwitchType from display)
         $htmlContent.Add(($vmPortGroupData | Select-Object Name, 'VLAN ID', 'Associated vSwitch' | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- DNS and Routing ---
         $htmlContent.Add('<h2 id="dnsRouting">DNS and Routing</h2>') | Out-Null
-        $networkConfig = Get-VMHostNetwork -VMHost $vmHost
+        $networkConfig = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
         $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
-        $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute)) { @($vmHost | Get-VMHostRoute | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
+        $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute -Server $viServer)) { @($vmHost | Get-VMHostRoute -Server $viServer | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         
         Write-Host "Joining dnsServersList: $([String]::Join(', ', $dnsServersList))"
         Write-Host "Joining staticRoutesList: $([String]::Join(', ', $staticRoutesList))"
@@ -378,14 +368,14 @@ foreach ($vmHost in $vmHosts) {
 
         # --- Firewall Rules ---
         $htmlContent.Add('<h2 id="firewall">Firewall Rules</h2>') | Out-Null
-        $firewallRules = Get-VMHostFirewallException -VMHost $vmHost | Where-Object { $_.Enabled }
+        $firewallRules = Get-VMHostFirewallException -VMHost $vmHost -Server $viServer | Where-Object { $_.Enabled }
         $firewallData = $firewallRules | Select-Object Name, Enabled, Protocol, @{N='Port';E={$_.Port}}
         $htmlContent.Add(($firewallData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- NTP Settings ---
         $htmlContent.Add('<h2 id="ntp">NTP Settings</h2>') | Out-Null
-        $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost
-        $ntpService = Get-VMHostService -VMHost $vmHost | Where-Object { $_.Key -eq 'ntpd' }
+        $ntpConfig = Get-VMHostNtpServer -VMHost $vmHost -Server $viServer
+        $ntpService = Get-VMHostService -VMHost $vmHost -Server $viServer | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         
         Write-Host "Joining ntpServersList: $([String]::Join(', ', $ntpServersList))"
@@ -399,12 +389,11 @@ foreach ($vmHost in $vmHosts) {
 
         # --- Physical NIC Hardware Information with Network Hints ---
         $htmlContent.Add('<h2 id="physicalNics">Physical NICs</h2>') | Out-Null
-        $physicalNics = Get-VMHostNetworkAdapter -VMHost $vmHost -Physical
-        $standardSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
-        $distributedSwitches = Get-VDSwitch -VMHost $vmHost
+        $physicalNics = Get-VMHostNetworkAdapter -VMHost $vmHost -Physical -Server $viServer
+        $standardSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard -Server $viServer
+        $distributedSwitches = Get-VDSwitch -VMHost $vmHost -Server $viServer
         
-        # Pre-fetch ProxySwitch data for all distributed switches
-        $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
+        $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
         $proxySwitchMap = @{}
         foreach ($dvs in $distributedSwitches) {
             $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvs.ExtensionData.Uuid }
@@ -413,14 +402,13 @@ foreach ($vmHost in $vmHosts) {
             }
         }
 
-        # Get Network Hints and Physical NIC speeds via Get-View
         $networkHints = $netSystem.QueryNetworkHint($null)
         $hintTable = @{}
         foreach ($hint in $networkHints) {
             $hintTable[$hint.Device] = $hint
         }
         $nicSpeeds = @{}
-        $hostView = Get-View -Id $vmHost.Id
+        $hostView = Get-View -Id $vmHost.Id -Server $viServer
         foreach ($pnic in $hostView.Config.Network.Pnic) {
             $nicSpeeds[$pnic.Device] = $pnic.LinkSpeed.SpeedMb
         }
@@ -430,7 +418,6 @@ foreach ($vmHost in $vmHosts) {
             $cdp = $hint.ConnectedSwitchPort
             $lldp = $hint.LLDPInfo
             
-            # Combine standard and distributed vSwitches
             $vSwitchList = @(
                 $standardSwitches | Where-Object { $_.Nic -contains $nic.Name } | ForEach-Object { $_.Name }
             ) + @(
@@ -471,6 +458,6 @@ foreach ($vmHost in $vmHosts) {
     }
 }
 
-# Disconnect from vCenter without confirmation
-Disconnect-VIServer -Server $vCenterServer -Confirm:$false
+# Disconnect from the vCenter server
+Disconnect-VIServer -Server $vCenterServer -Force -Confirm:$false
 Write-Host "Disconnected from $vCenterServer"
