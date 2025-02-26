@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.36
+    Version: 1.0.37
     Last Updated: February 26, 2025
 #>
 
@@ -56,52 +56,65 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out
 # Generate timestamp for output file naming
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
-# Prompt user to select or enter a vCenter server
-Write-Host "Available vCenter Servers:"
-for ($i = 0; $i -lt $vCenterList.Count; $i++) {
-    Write-Host "$($i + 1). $($vCenterList[$i].Server) - $($vCenterList[$i].Description)"
+# Function to validate numeric input and re-prompt if invalid
+function Get-NumericChoice {
+    param (
+        [string]$Prompt,
+        [int]$Min,
+        [int]$Max
+    )
+    do {
+        Write-Host $Prompt
+        $input = Read-Host "Enter a number ($Min-$Max)"
+        if ($input -match '^\d+$' -and [int]$input -ge $Min -and [int]$input -le $Max) {
+            return [int]$input
+        } else {
+            Write-Host "Invalid input. Please enter a number between $Min and $Max."
+        }
+    } while ($true)
 }
-Write-Host "$($vCenterList.Count + 1). Enter a custom vCenter server manually"
-$selection = Read-Host "Select a vCenter server by number (1-$($vCenterList.Count + 1))"
 
-if ([int]$selection -ge 1 -and [int]$selection -le $vCenterList.Count) {
-    $vCenterServer = $vCenterList[[int]$selection - 1].Server
-    Write-Host "Selected vCenter: $vCenterServer ($($vCenterList[[int]$selection - 1].Description))"
-} elseif ([int]$selection -eq $vCenterList.Count + 1) {
+# Prompt user to select or enter a vCenter server
+$vCenterPrompt = "Available vCenter Servers:`n"
+for ($i = 0; $i -lt $vCenterList.Count; $i++) {
+    $vCenterPrompt += "$($i + 1). $($vCenterList[$i].Server) - $($vCenterList[$i].Description)`n"
+}
+$vCenterPrompt += "$($vCenterList.Count + 1). Enter a custom vCenter server manually"
+
+$selection = Get-NumericChoice -Prompt $vCenterPrompt -Min 1 -Max ($vCenterList.Count + 1)
+
+if ($selection -ge 1 -and $selection -le $vCenterList.Count) {
+    $vCenterServer = $vCenterList[$selection - 1].Server
+    Write-Host "Selected vCenter: $vCenterServer ($($vCenterList[$selection - 1].Description))"
+} else {
     $vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
     Write-Host "Using custom vCenter: $vCenterServer"
-} else {
-    Write-Warning "Invalid selection. Please run the script again and choose a valid option."
-    exit
 }
 
 # Prompt for credentials
 $credential = Get-Credential -Message "Enter vCenter credentials for $vCenterServer"
 
 # Prompt for output path
-Write-Host "Output Path Options:"
-Write-Host "1. Default path: $defaultOutputPath"
-Write-Host "2. Script execution directory: $scriptPath"
-Write-Host "3. Custom path"
-$pathChoice = Read-Host "Select an output path option (1-3, or press Enter for default)"
+$outputPrompt = "Output Path Options:`n"
+$outputPrompt += "1. Default path: $defaultOutputPath`n"
+$outputPrompt += "2. Script execution directory: $scriptPath`n"
+$outputPrompt += "3. Custom path"
+
+$pathChoice = Get-NumericChoice -Prompt $outputPrompt -Min 1 -Max 3
 
 switch ($pathChoice) {
-    "1" { 
+    1 { 
         $outputPath = $defaultOutputPath
         Write-Host "Using default output path: $outputPath"
     }
-    "2" { 
+    2 { 
         $outputPath = $scriptPath
         Write-Host "Using script execution directory: $outputPath"
     }
-    "3" { 
+    3 { 
         $customPath = Read-Host "Enter custom output path"
         $outputPath = $customPath
         Write-Host "Using custom output path: $outputPath"
-    }
-    default { 
-        $outputPath = $defaultOutputPath
-        Write-Host "No selection made, using default output path: $outputPath"
     }
 }
 
