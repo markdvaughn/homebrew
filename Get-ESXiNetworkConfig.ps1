@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.29
+    Version: 1.0.30
     Last Updated: February 25, 2025
 #>
 
@@ -141,51 +141,69 @@ foreach ($vmHost in $vmHosts) {
         $vmkPortGroupNames = $vmkAdapters | ForEach-Object { $_.PortGroupName }
         
         $vSwitchData = foreach ($vSwitch in $vSwitches) {
-            $security = $vSwitch | Get-SecurityPolicy
-            $teaming = $vSwitch | Get-NicTeamingPolicy
-            
-            # Get VMkernel adapters and VLANs associated with this vSwitch
-            $relatedVmk = $vmkAdapters | Where-Object { 
-                $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
-            }
-            $vmkList = if ($relatedVmk) {
-                $vmkArray = @($relatedVmk | ForEach-Object { 
-                    $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
-                    "$($_.Name) (VLAN $vlan)"
-                })
-                Write-Host "Joining vmkArray for $($vSwitch.Name): $($vmkArray -join ', ')"
-                [String]::Join(', ', $vmkArray)
-            } else {
-                'None'
-            }
+            try {
+                $security = $vSwitch | Get-SecurityPolicy
+                $teaming = $vSwitch | Get-NicTeamingPolicy
+                
+                # Get VMkernel adapters and VLANs associated with this vSwitch
+                $relatedVmk = $vmkAdapters | Where-Object { 
+                    $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch).Name 
+                }
+                $vmkList = if ($relatedVmk) {
+                    $vmkArray = @($relatedVmk | ForEach-Object { 
+                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost).VLanId
+                        "$($_.Name) (VLAN $vlan)"
+                    })
+                    Write-Host "Joining vmkArray for $($vSwitch.Name): $($vmkArray -join ', ')"
+                    [String]::Join(', ', $vmkArray)
+                } else {
+                    'None'
+                }
 
-            # Ensure arrays are not null before joining, with explicit $teaming check
-            $nicList = if ($null -ne $vSwitch.Nic) { $vSwitch.Nic } else { @() }
-            $activeNicList = @()
-            $standbyNicList = @()
-            $loadBalancing = 'N/A'
-            if ($null -ne $teaming) {
-                if ($null -ne $teaming.ActiveNic) { $activeNicList = $teaming.ActiveNic }
-                if ($null -ne $teaming.StandbyNic) { $standbyNicList = $teaming.StandbyNic }
-                $loadBalancing = $teaming.LoadBalancingPolicy
+                # Ensure arrays are not null before joining
+                $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
+                $activeNicList = @()
+                $standbyNicList = @()
+                $loadBalancing = 'N/A'
+                if ($null -ne $teaming) {
+                    $activeNicList = if ($null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
+                    $standbyNicList = if ($null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
+                    $loadBalancing = if ($null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+                }
+
+                Write-Host "Joining nicList for $($vSwitch.Name): $($nicList -join ', ')"
+                Write-Host "Joining activeNicList for $($vSwitch.Name): $($activeNicList -join ', ')"
+                Write-Host "Joining standbyNicList for $($vSwitch.Name): $($standbyNicList -join ', ')"
+
+                [PSCustomObject]@{
+                    Name = $vSwitch.Name
+                    Ports = $vSwitch.NumPorts
+                    MTU = $vSwitch.MTU
+                    NICs = [String]::Join(', ', $nicList)
+                    Promiscuous = $security.AllowPromiscuous
+                    ForgedTransmits = $security.ForgedTransmits
+                    MacChanges = $security.MacChanges
+                    LoadBalancing = $loadBalancing
+                    ActiveNICs = [String]::Join(', ', $activeNicList)
+                    StandbyNICs = [String]::Join(', ', $standbyNicList)
+                    VMkernels_VLANs = $vmkList
+                }
             }
-
-            Write-Host "Joining nicList for $($vSwitch.Name): $($nicList -join ', ')"
-            Write-Host "Joining activeNicList for $($vSwitch.Name): $($activeNicList -join ', ')"
-            Write-Host "Joining standbyNicList for $($vSwitch.Name): $($standbyNicList -join ', ')"
-
-            [PSCustomObject]@{
-                Name = $vSwitch.Name
-                Ports = $vSwitch.NumPorts
-                MTU = $vSwitch.MTU
-                NICs = [String]::Join(', ', $nicList)
-                Promiscuous = $security.AllowPromiscuous
-                ForgedTransmits = $security.ForgedTransmits
-                MacChanges = $security.MacChanges
-                LoadBalancing = $loadBalancing
-                ActiveNICs = [String]::Join(', ', $activeNicList)
-                StandbyNICs = [String]::Join(', ', $standbyNicList)
-                VMkernels_VLANs = $vmkList
+            catch {
+                Write-Warning "Error processing vSwitch $($vSwitch.Name) on $($vmHost.Name): $_"
+                [PSCustomObject]@{
+                    Name = $vSwitch.Name
+                    Ports = 'N/A'
+                    MTU = 'N/A'
+                    NICs = 'N/A'
+                    Promiscuous = 'N/A'
+                    ForgedTransmits = 'N/A'
+                    MacChanges = 'N/A'
+                    LoadBalancing = 'N/A'
+                    ActiveNICs = 'N/A'
+                    StandbyNICs = 'N/A'
+                    VMkernels_VLANs = 'N/A'
+                }
             }
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
