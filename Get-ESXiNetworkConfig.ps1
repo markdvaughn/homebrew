@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.27
+    Version: 1.0.28
     Last Updated: February 25, 2025
 #>
 
@@ -260,15 +260,15 @@ foreach ($vmHost in $vmHosts) {
         } else {
             [PSCustomObject]@{
                 Name = 'N/A'
-                Ports = 'N/A'
-                MTU = 'N/A'
-                NICs = 'N/A'
-                Promiscuous = 'N/A'
-                ForgedTransmits = 'N/A'
-                MacChanges = 'N/A'
-                LoadBalancing = 'N/A'
-                ActiveNICs = 'N/A'
-                StandbyNICs = 'N/A'
+                Ports = ''
+                MTU = ''
+                NICs = ''
+                Promiscuous = ''
+                ForgedTransmits = ''
+                MacChanges = ''
+                LoadBalancing = ''
+                ActiveNICs = ''
+                StandbyNICs = ''
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
