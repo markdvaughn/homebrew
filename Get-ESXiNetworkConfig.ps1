@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.31
+    Version: 1.0.32
     Last Updated: February 25, 2025
 #>
 
@@ -104,7 +104,7 @@ foreach ($vmHost in $vmHosts) {
         Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
         $routes = $vmHost | Get-VMHostRoute
         $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
-        Write-Host "Debug: Full Routes: $($routeStrings -join ', ')"
+        Write-Host "Debug: Full Routes: $([String]::Join(', ', $routeStrings))"
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
         Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
         $vmkData = foreach ($vmk in $vmkAdapters) {
@@ -160,18 +160,20 @@ foreach ($vmHost in $vmHosts) {
                     'None'
                 }
 
-                # Ensure arrays are not null before joining
-                $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
-                $activeNicList = @()
-                $standbyNicList = @()
-                $loadBalancing = 'N/A'
-                if ($null -ne $teaming) {
-                    $activeNicList = if ($null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
-                    $standbyNicList = if ($null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
-                    $loadBalancing = if ($null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+                # Debug teaming state
+                Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)"
+                if ($teaming) {
+                    Write-Host "Debug: ActiveNic: $($teaming.ActiveNic -join ', ' -or 'null')"
+                    Write-Host "Debug: StandbyNic: $($teaming.StandbyNic -join ', ' -or 'null')"
+                    Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')"
                 }
 
-                # Use String.Join for debug output to handle null gracefully
+                # Ensure arrays are not null before joining, with explicit fallbacks
+                $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
+                $activeNicList = if ($teaming -and $null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
+                $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
+                $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+
                 Write-Host "Joining nicList for $($vSwitch.Name): $([String]::Join(', ', $nicList))"
                 Write-Host "Joining activeNicList for $($vSwitch.Name): $([String]::Join(', ', $activeNicList))"
                 Write-Host "Joining standbyNicList for $($vSwitch.Name): $([String]::Join(', ', $standbyNicList))"
