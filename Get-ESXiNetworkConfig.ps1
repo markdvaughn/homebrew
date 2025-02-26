@@ -15,8 +15,8 @@
 
 .EXAMPLE
     .\Get-ESXiNetworkConfig.ps1
-    Runs the script, prompting for vCenter server selection, credentials, and output path, 
-    then generates HTML reports in the specified directory.
+    Runs the script, prompting for vCenter server selection with descriptions, credentials, 
+    and output path options, then generates HTML reports in the specified directory.
 
 .OUTPUTS
     HTML files named "NetworkConfig_<vCenterServer>_<hostname>_<timestamp>.html" for each ESXi host.
@@ -27,20 +27,23 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.35
+    Version: 1.0.36
     Last Updated: February 26, 2025
 #>
 
 # --- Configuration Variables ---
-# Pre-populated list of vCenter servers (add your servers here)
+# Pre-populated list of vCenter servers with descriptions (add your servers and descriptions here)
 $vCenterList = @(
-    "vc01.example.com",
-    "vc02.example.com",
-    "vc03.example.com"
+    @{ Server = "vc01.example.com"; Description = "Production Cluster - East Coast" },
+    @{ Server = "vc02.example.com"; Description = "Production Cluster - West Coast" },
+    @{ Server = "vc03.example.com"; Description = "Test/Dev Environment" }
 )
 
 # Default output path for HTML reports (modify as needed)
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
+
+# Script execution directory (determined at runtime)
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- End Configuration Variables ---
 
@@ -56,14 +59,14 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 # Prompt user to select or enter a vCenter server
 Write-Host "Available vCenter Servers:"
 for ($i = 0; $i -lt $vCenterList.Count; $i++) {
-    Write-Host "$($i + 1). $($vCenterList[$i])"
+    Write-Host "$($i + 1). $($vCenterList[$i].Server) - $($vCenterList[$i].Description)"
 }
 Write-Host "$($vCenterList.Count + 1). Enter a custom vCenter server manually"
 $selection = Read-Host "Select a vCenter server by number (1-$($vCenterList.Count + 1))"
 
 if ([int]$selection -ge 1 -and [int]$selection -le $vCenterList.Count) {
-    $vCenterServer = $vCenterList[[int]$selection - 1]
-    Write-Host "Selected vCenter: $vCenterServer"
+    $vCenterServer = $vCenterList[[int]$selection - 1].Server
+    Write-Host "Selected vCenter: $vCenterServer ($($vCenterList[[int]$selection - 1].Description))"
 } elseif ([int]$selection -eq $vCenterList.Count + 1) {
     $vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
     Write-Host "Using custom vCenter: $vCenterServer"
@@ -76,14 +79,30 @@ if ([int]$selection -ge 1 -and [int]$selection -le $vCenterList.Count) {
 $credential = Get-Credential -Message "Enter vCenter credentials for $vCenterServer"
 
 # Prompt for output path
-Write-Host "Default output path: $defaultOutputPath"
-$pathChoice = Read-Host "Press Enter to use the default path, or type a custom path"
-if ([string]::IsNullOrWhiteSpace($pathChoice)) {
-    $outputPath = $defaultOutputPath
-    Write-Host "Using default output path: $outputPath"
-} else {
-    $outputPath = $pathChoice
-    Write-Host "Using custom output path: $outputPath"
+Write-Host "Output Path Options:"
+Write-Host "1. Default path: $defaultOutputPath"
+Write-Host "2. Script execution directory: $scriptPath"
+Write-Host "3. Custom path"
+$pathChoice = Read-Host "Select an output path option (1-3, or press Enter for default)"
+
+switch ($pathChoice) {
+    "1" { 
+        $outputPath = $defaultOutputPath
+        Write-Host "Using default output path: $outputPath"
+    }
+    "2" { 
+        $outputPath = $scriptPath
+        Write-Host "Using script execution directory: $outputPath"
+    }
+    "3" { 
+        $customPath = Read-Host "Enter custom output path"
+        $outputPath = $customPath
+        Write-Host "Using custom output path: $outputPath"
+    }
+    default { 
+        $outputPath = $defaultOutputPath
+        Write-Host "No selection made, using default output path: $outputPath"
+    }
 }
 
 # Ensure the output directory exists
