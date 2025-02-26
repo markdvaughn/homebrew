@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.24
+    Version: 1.0.25
     Last Updated: February 25, 2025
 #>
 
@@ -291,13 +291,13 @@ foreach ($vmHost in $vmHosts) {
 
         # Sort and add standard port groups
         if ($standardPortGroups.Count -gt 0) {
-            $sortedStandard = $standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
+            $sortedStandard = @($standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedStandard)
         }
 
         # Sort and add distributed port groups
         if ($distributedPortGroups.Count -gt 0) {
-            $sortedDistributed = $distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID'
+            $sortedDistributed = @($distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedDistributed)
         }
 
