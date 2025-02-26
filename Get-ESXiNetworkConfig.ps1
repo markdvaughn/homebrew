@@ -19,7 +19,7 @@
     generates HTML reports in the current directory.
 
 .OUTPUTS
-    HTML files named "NetworkConfig_<hostname>_<timestamp>.html" for each ESXi host.
+    HTML files named "NetworkConfig_<vCenterServer>_<hostname>_<timestamp>.html" for each ESXi host.
 
 .NOTES
     - Requires VMware PowerCLI module to be installed. Install with: Install-Module -Name VMware.PowerCLI
@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.28
+    Version: 1.0.29
     Last Updated: February 25, 2025
 #>
 
@@ -430,8 +430,8 @@ foreach ($vmHost in $vmHosts) {
         # Close HTML
         $htmlContent.Add('</body></html>') | Out-Null
 
-        # Write to file
-        $fileName = "NetworkConfig_$($vmHost.Name)_$timestamp.html"
+        # Write to file with vCenter server name included
+        $fileName = "NetworkConfig_${vCenterServer}_$($vmHost.Name)_$timestamp.html"
         $htmlContent | Out-File -FilePath $fileName -Encoding UTF8
         Write-Host "Generated report: $fileName"
     }
