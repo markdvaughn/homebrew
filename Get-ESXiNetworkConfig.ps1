@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.32
+    Version: 1.0.33
     Last Updated: February 25, 2025
 #>
 
@@ -163,8 +163,8 @@ foreach ($vmHost in $vmHosts) {
                 # Debug teaming state
                 Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)"
                 if ($teaming) {
-                    Write-Host "Debug: ActiveNic: $($teaming.ActiveNic -join ', ' -or 'null')"
-                    Write-Host "Debug: StandbyNic: $($teaming.StandbyNic -join ', ' -or 'null')"
+                    Write-Host "Debug: ActiveNic is null: $($teaming.ActiveNic -eq $null)"
+                    Write-Host "Debug: StandbyNic is null: $($teaming.StandbyNic -eq $null)"
                     Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')"
                 }
 
@@ -174,21 +174,31 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                Write-Host "Joining nicList for $($vSwitch.Name): $([String]::Join(', ', $nicList))"
-                Write-Host "Joining activeNicList for $($vSwitch.Name): $([String]::Join(', ', $activeNicList))"
-                Write-Host "Joining standbyNicList for $($vSwitch.Name): $([String]::Join(', ', $standbyNicList))"
+                # Debug values before joining
+                Write-Host "Debug: nicList before join: $(if ($nicList) { $nicList -join ', ' } else { 'empty' })"
+                Write-Host "Debug: activeNicList before join: $(if ($activeNicList) { $activeNicList -join ', ' } else { 'empty' })"
+                Write-Host "Debug: standbyNicList before join: $(if ($standbyNicList) { $standbyNicList -join ', ' } else { 'empty' })"
+
+                # Perform joins with explicit array wrapping
+                $nicString = [String]::Join(', ', @($nicList))
+                $activeNicString = [String]::Join(', ', @($activeNicList))
+                $standbyNicString = [String]::Join(', ', @($standbyNicList))
+
+                Write-Host "Joining nicList for $($vSwitch.Name): $nicString"
+                Write-Host "Joining activeNicList for $($vSwitch.Name): $activeNicString"
+                Write-Host "Joining standbyNicList for $($vSwitch.Name): $standbyNicString"
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
                     Ports = $vSwitch.NumPorts
                     MTU = $vSwitch.MTU
-                    NICs = [String]::Join(', ', $nicList)
+                    NICs = $nicString
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
-                    ActiveNICs = [String]::Join(', ', $activeNicList)
-                    StandbyNICs = [String]::Join(', ', $standbyNicList)
+                    ActiveNICs = $activeNicString
+                    StandbyNICs = $standbyNicString
                     VMkernels_VLANs = $vmkList
                 }
             }
