@@ -10,13 +10,13 @@
     information with CDP/LLDP data.
 
 .PARAMETER None
-    This script does not accept parameters. It prompts for vCenter server details 
-    and credentials interactively.
+    This script does not accept parameters. It prompts for vCenter server selection, 
+    credentials, and output path interactively.
 
 .EXAMPLE
     .\Get-ESXiNetworkConfig.ps1
-    Runs the script, prompting for vCenter server hostname/IP and credentials, then 
-    generates HTML reports in the current directory.
+    Runs the script, prompting for vCenter server selection, credentials, and output path, 
+    then generates HTML reports in the specified directory.
 
 .OUTPUTS
     HTML files named "NetworkConfig_<vCenterServer>_<hostname>_<timestamp>.html" for each ESXi host.
@@ -25,11 +25,24 @@
     - Requires VMware PowerCLI module to be installed. Install with: Install-Module -Name VMware.PowerCLI
     - Must be run with sufficient vCenter permissions to view host configurations.
     - Ignores invalid SSL certificates by default.
-    - Current date used in script execution: February 25, 2025
+    - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.34
+    Version: 1.0.35
     Last Updated: February 26, 2025
 #>
+
+# --- Configuration Variables ---
+# Pre-populated list of vCenter servers (add your servers here)
+$vCenterList = @(
+    "vc01.example.com",
+    "vc02.example.com",
+    "vc03.example.com"
+)
+
+# Default output path for HTML reports (modify as needed)
+$defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
+
+# --- End Configuration Variables ---
 
 # Suppress PowerCLI welcome message for cleaner output
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -40,18 +53,59 @@ Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out
 # Generate timestamp for output file naming
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
-# Prompt user for vCenter server details
-$vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
-$credential = Get-Credential -Message "Enter vCenter credentials"
+# Prompt user to select or enter a vCenter server
+Write-Host "Available vCenter Servers:"
+for ($i = 0; $i -lt $vCenterList.Count; $i++) {
+    Write-Host "$($i + 1). $($vCenterList[$i])"
+}
+Write-Host "$($vCenterList.Count + 1). Enter a custom vCenter server manually"
+$selection = Read-Host "Select a vCenter server by number (1-$($vCenterList.Count + 1))"
 
-# Disconnect from any existing vCenter connections to avoid querying the wrong server
+if ([int]$selection -ge 1 -and [int]$selection -le $vCenterList.Count) {
+    $vCenterServer = $vCenterList[[int]$selection - 1]
+    Write-Host "Selected vCenter: $vCenterServer"
+} elseif ([int]$selection -eq $vCenterList.Count + 1) {
+    $vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
+    Write-Host "Using custom vCenter: $vCenterServer"
+} else {
+    Write-Warning "Invalid selection. Please run the script again and choose a valid option."
+    exit
+}
+
+# Prompt for credentials
+$credential = Get-Credential -Message "Enter vCenter credentials for $vCenterServer"
+
+# Prompt for output path
+Write-Host "Default output path: $defaultOutputPath"
+$pathChoice = Read-Host "Press Enter to use the default path, or type a custom path"
+if ([string]::IsNullOrWhiteSpace($pathChoice)) {
+    $outputPath = $defaultOutputPath
+    Write-Host "Using default output path: $outputPath"
+} else {
+    $outputPath = $pathChoice
+    Write-Host "Using custom output path: $outputPath"
+}
+
+# Ensure the output directory exists
+if (-not (Test-Path -Path $outputPath)) {
+    try {
+        New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
+        Write-Host "Created output directory: $outputPath"
+    }
+    catch {
+        Write-Warning "Failed to create output directory $outputPath : $_"
+        exit
+    }
+}
+
+# Disconnect from any existing vCenter connections
 if ($global:DefaultVIServers) {
     Disconnect-VIServer -Server * -Force -Confirm:$false
     Write-Host "Disconnected from all previous vCenter servers."
 }
 
 try {
-    # Connect to the specified vCenter with error handling
+    # Connect to the specified vCenter
     Write-Host "Connecting to $vCenterServer..."
     $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
     Write-Host "Connected to $vCenterServer successfully."
@@ -83,14 +137,11 @@ $vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
 foreach ($vmHost in $vmHosts) {
     Write-Host "Processing network configuration for host: $($vmHost.Name)"
     
-    # Get current date and time for subheading
     $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
-    # Initialize HTML content array with main heading and smaller, non-bold timestamp
     $htmlContent = [System.Collections.ArrayList]::new()
     $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><div class='timestamp'>$reportDateTime</div>") | Out-Null
     
-    # Table of Contents
     $toc = '<div class="toc"><h2>Table of Contents</h2>'
     $toc += '<a href="#vmkernel">VMkernel Interfaces</a>'
     $toc += '<a href="#vSwitch">Standard vSwitches</a>'
@@ -448,8 +499,8 @@ foreach ($vmHost in $vmHosts) {
         # Close HTML
         $htmlContent.Add('</body></html>') | Out-Null
 
-        # Write to file with vCenter server name included
-        $fileName = "NetworkConfig_${vCenterServer}_$($vmHost.Name)_$timestamp.html"
+        # Write to file with vCenter server name included in the specified output path
+        $fileName = Join-Path -Path $outputPath -ChildPath "NetworkConfig_${vCenterServer}_$($vmHost.Name)_$timestamp.html"
         $htmlContent | Out-File -FilePath $fileName -Encoding UTF8
         Write-Host "Generated report: $fileName"
     }
