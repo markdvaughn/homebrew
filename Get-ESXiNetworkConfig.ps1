@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.25
+    Version: 1.0.26
     Last Updated: February 25, 2025
 #>
 
@@ -66,6 +66,7 @@ $css = @"
     tr:nth-child(even) { background-color: #f2f2f2; }
     .toc { margin-bottom: 20px; }
     .toc a { margin-right: 15px; }
+    .timestamp { font-size: 12px; font-style: italic; }
 </style>
 "@
 
@@ -78,14 +79,14 @@ foreach ($vmHost in $vmHosts) {
     # Get current date and time for subheading
     $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
-    # Initialize HTML content array with main heading and italicized datetime subheading
+    # Initialize HTML content array with main heading and smaller, non-bold timestamp
     $htmlContent = [System.Collections.ArrayList]::new()
-    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><h3><i>$reportDateTime</i></h3>") | Out-Null
+    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><div class='timestamp'>$reportDateTime</div>") | Out-Null
     
-    # Table of Contents
+    # Table of Contents (updated order)
     $toc = '<div class="toc"><h2>Table of Contents</h2>'
-    $toc += '<a href="#vSwitch">Standard vSwitches</a>'
     $toc += '<a href="#vmkernel">VMkernel Interfaces</a>'
+    $toc += '<a href="#vSwitch">Standard vSwitches</a>'
     $toc += '<a href="#dvSwitch">Distributed vSwitches</a>'
     $toc += '<a href="#vmPortGroups">VM Port Groups</a>'
     $toc += '<a href="#dnsRouting">DNS and Routing</a>'
@@ -96,10 +97,47 @@ foreach ($vmHost in $vmHosts) {
     $htmlContent.Add($toc) | Out-Null
 
     try {
+        # --- VMkernel Interfaces (moved up) ---
+        $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
+        $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
+        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
+        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
+        $routes = $vmHost | Get-VMHostRoute
+        $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
+        Write-Host "Debug: Full Routes: $($routeStrings -join ', ')"
+        $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
+        Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
+        $vmkData = foreach ($vmk in $vmkAdapters) {
+            # Debug output to check raw values
+            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
+            # Use IPGateway if set, otherwise fall back to host's default gateway from route for management
+            $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
+                $vmk.IPGateway 
+            } elseif ($vmk.ManagementTrafficEnabled -and $defaultGateway -and $defaultGateway -ne '0.0.0.0') { 
+                $defaultGateway 
+            } else { 
+                'N/A' 
+            }
+
+            [PSCustomObject]@{
+                Name = $vmk.Name
+                IP = $vmk.IP
+                SubnetMask = $vmk.SubnetMask
+                MAC = $vmk.Mac
+                PortGroup = $vmk.PortGroupName
+                Gateway = $vmkGateway
+                VMotion = $vmk.VMotionEnabled
+                FTLogging = $vmk.FaultToleranceLoggingEnabled
+                Management = $vmk.ManagementTrafficEnabled
+                VLAN = (Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost).VLanId
+                MTU = $vmk.MTU
+            }
+        }
+        $htmlContent.Add(($vmkData | ConvertTo-Html -Fragment)) | Out-Null
+
         # --- Standard vSwitch Configuration ---
         $htmlContent.Add('<h2 id="vSwitch">Standard vSwitches</h2>') | Out-Null
         $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard
-        $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
         $vmkPortGroupNames = $vmkAdapters | ForEach-Object { $_.PortGroupName }
         
         $vSwitchData = foreach ($vSwitch in $vSwitches) {
@@ -151,43 +189,6 @@ foreach ($vmHost in $vmHosts) {
             }
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
-
-        # --- VMkernel Interfaces ---
-        $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
-        $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
-        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
-        $routes = $vmHost | Get-VMHostRoute
-        $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
-        Write-Host "Debug: Full Routes: $($routeStrings -join ', ')"
-        $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
-        Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
-        $vmkData = foreach ($vmk in $vmkAdapters) {
-            # Debug output to check raw values
-            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
-            # Use IPGateway if set, otherwise fall back to host's default gateway from route for management
-            $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
-                $vmk.IPGateway 
-            } elseif ($vmk.ManagementTrafficEnabled -and $defaultGateway -and $defaultGateway -ne '0.0.0.0') { 
-                $defaultGateway 
-            } else { 
-                'N/A' 
-            }
-
-            [PSCustomObject]@{
-                Name = $vmk.Name
-                IP = $vmk.IP
-                SubnetMask = $vmk.SubnetMask
-                MAC = $vmk.Mac
-                PortGroup = $vmk.PortGroupName
-                Gateway = $vmkGateway
-                VMotion = $vmk.VMotionEnabled
-                FTLogging = $vmk.FaultToleranceLoggingEnabled
-                Management = $vmk.ManagementTrafficEnabled
-                VLAN = (Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost).VLanId
-                MTU = $vmk.MTU
-            }
-        }
-        $htmlContent.Add(($vmkData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- Distributed vSwitch Configuration ---
         $htmlContent.Add('<h2 id="dvSwitch">Distributed vSwitches</h2>') | Out-Null
