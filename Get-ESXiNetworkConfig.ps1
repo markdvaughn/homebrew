@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 25, 2025
 
-    Version: 1.0.26
+    Version: 1.0.27
     Last Updated: February 25, 2025
 #>
 
@@ -83,7 +83,7 @@ foreach ($vmHost in $vmHosts) {
     $htmlContent = [System.Collections.ArrayList]::new()
     $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><div class='timestamp'>$reportDateTime</div>") | Out-Null
     
-    # Table of Contents (updated order)
+    # Table of Contents
     $toc = '<div class="toc"><h2>Table of Contents</h2>'
     $toc += '<a href="#vmkernel">VMkernel Interfaces</a>'
     $toc += '<a href="#vSwitch">Standard vSwitches</a>'
@@ -97,7 +97,7 @@ foreach ($vmHost in $vmHosts) {
     $htmlContent.Add($toc) | Out-Null
 
     try {
-        # --- VMkernel Interfaces (moved up) ---
+        # --- VMkernel Interfaces ---
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel
@@ -193,67 +193,82 @@ foreach ($vmHost in $vmHosts) {
         # --- Distributed vSwitch Configuration ---
         $htmlContent.Add('<h2 id="dvSwitch">Distributed vSwitches</h2>') | Out-Null
         $dvSwitches = Get-VDSwitch -VMHost $vmHost
-        $dvSwitchData = foreach ($dvSwitch in $dvSwitches) {
-            $security = $dvSwitch | Get-VDSecurityPolicy
-            $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
-            
-            # Get physical NICs (uplinks) from ProxySwitch
-            $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
-            $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
-            Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
-            if ($proxySwitch) {
-                Write-Host "Debug: Pnic for $($dvSwitch.Name): $($proxySwitch.Pnic -join ', ')"
-            }
-            
-            $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
-                $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
-            } else {
-                @()
-            }
-            $uplinkNames = if ($dvUplinks) {
-                Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($dvUplinks -join ', ')"
-                [String]::Join(', ', $dvUplinks)
-            } else {
-                'None'
-            }
+        $dvSwitchData = if ($dvSwitches.Count -gt 0) {
+            foreach ($dvSwitch in $dvSwitches) {
+                $security = $dvSwitch | Get-VDSecurityPolicy
+                $teaming = $dvSwitch | Get-VDUplinkTeamingPolicy
+                
+                # Get physical NICs (uplinks) from ProxySwitch
+                $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem
+                $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
+                Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
+                if ($proxySwitch) {
+                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $($proxySwitch.Pnic -join ', ')"
+                }
+                
+                $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
+                    $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
+                } else {
+                    @()
+                }
+                $uplinkNames = if ($dvUplinks) {
+                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $($dvUplinks -join ', ')"
+                    [String]::Join(', ', $dvUplinks)
+                } else {
+                    'None'
+                }
 
-            # Get active and standby NICs from teaming policy
-            $activeNicList = @()
-            $standbyNicList = @()
-            $loadBalancing = 'N/A'
-            if ($null -ne $teaming) {
-                $loadBalancing = $teaming.LoadBalancingPolicy
-                if ($teaming.ActiveUplink -and $proxySwitch -and $proxySwitch.Pnic) {
-                    # Map logical uplinks to physical NICs
-                    $uplinkPorts = $dvSwitch.ExtensionData.Config.UplinkPortPolicy.UplinkPortName
-                    $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
-                    $uplinkMapping = @{}
-                    for ($i = 0; $i -lt [Math]::Min($uplinkPorts.Count, $pnicList.Count); $i++) {
-                        $uplinkMapping[$uplinkPorts[$i]] = $pnicList[$i]
+                # Get active and standby NICs from teaming policy
+                $activeNicList = @()
+                $standbyNicList = @()
+                $loadBalancing = 'N/A'
+                if ($null -ne $teaming) {
+                    $loadBalancing = $teaming.LoadBalancingPolicy
+                    if ($teaming.ActiveUplink -and $proxySwitch -and $proxySwitch.Pnic) {
+                        # Map logical uplinks to physical NICs
+                        $uplinkPorts = $dvSwitch.ExtensionData.Config.UplinkPortPolicy.UplinkPortName
+                        $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
+                        $uplinkMapping = @{}
+                        for ($i = 0; $i -lt [Math]::Min($uplinkPorts.Count, $pnicList.Count); $i++) {
+                            $uplinkMapping[$uplinkPorts[$i]] = $pnicList[$i]
+                        }
+                        $activeNicList = @($teaming.ActiveUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
+                        $standbyNicList = @($teaming.StandbyUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
                     }
-                    $activeNicList = @($teaming.ActiveUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
-                    $standbyNicList = @($teaming.StandbyUplink | ForEach-Object { $uplinkMapping[$_] } | Where-Object { $_ })
+                    # If no explicit active/standby, assume all uplinks are active unless standby is specified
+                    if (-not $activeNicList -and -not $standbyNicList -and $dvUplinks) {
+                        $activeNicList = $dvUplinks
+                    }
                 }
-                # If no explicit active/standby, assume all uplinks are active unless standby is specified
-                if (-not $activeNicList -and -not $standbyNicList -and $dvUplinks) {
-                    $activeNicList = $dvUplinks
+
+                Write-Host "Joining activeNicList for $($dvSwitch.Name): $($activeNicList -join ', ')"
+                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $($standbyNicList -join ', ')"
+
+                [PSCustomObject]@{
+                    Name = $dvSwitch.Name
+                    Ports = $dvSwitch.NumPorts
+                    MTU = $dvSwitch.Mtu
+                    NICs = $uplinkNames
+                    Promiscuous = $security.AllowPromiscuous
+                    ForgedTransmits = $security.ForgedTransmits
+                    MacChanges = $security.MacChanges
+                    LoadBalancing = $loadBalancing
+                    ActiveNICs = [String]::Join(', ', $activeNicList)
+                    StandbyNICs = [String]::Join(', ', $standbyNicList)
                 }
             }
-
-            Write-Host "Joining activeNicList for $($dvSwitch.Name): $($activeNicList -join ', ')"
-            Write-Host "Joining standbyNicList for $($dvSwitch.Name): $($standbyNicList -join ', ')"
-
+        } else {
             [PSCustomObject]@{
-                Name = $dvSwitch.Name
-                Ports = $dvSwitch.NumPorts
-                MTU = $dvSwitch.Mtu
-                NICs = $uplinkNames
-                Promiscuous = $security.AllowPromiscuous
-                ForgedTransmits = $security.ForgedTransmits
-                MacChanges = $security.MacChanges
-                LoadBalancing = $loadBalancing
-                ActiveNICs = [String]::Join(', ', $activeNicList)
-                StandbyNICs = [String]::Join(', ', $standbyNicList)
+                Name = 'N/A'
+                Ports = 'N/A'
+                MTU = 'N/A'
+                NICs = 'N/A'
+                Promiscuous = 'N/A'
+                ForgedTransmits = 'N/A'
+                MacChanges = 'N/A'
+                LoadBalancing = 'N/A'
+                ActiveNICs = 'N/A'
+                StandbyNICs = 'N/A'
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
