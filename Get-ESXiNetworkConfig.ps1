@@ -27,18 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.58
+    Version: 1.0.59
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.57 omitted for brevity, see prior script for full history]
-    1.0.57 - February 27, 2025
-        - Replaced ternary operator (? :) with if-else in Distributed vSwitches section to ensure compatibility with PowerShell 5.1.
+    # [Previous versions 1.0.25 to 1.0.58 omitted for brevity, see prior script for full history]
     1.0.58 - February 27, 2025
         - Fixed recurring "Value cannot be null" error in Standard vSwitches section by strengthening null checks and ensuring all arrays for [String]::Join() are initialized.
         - Added debug output to identify null values before [String]::Join() calls.
+    1.0.59 - February 27, 2025
+        - Removed ternary operator (? :) introduced in 1.0.58 for null protection in Standard vSwitches section, replaced with PowerShell 5.1-compatible logic.
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.58"
+$scriptVersion = "1.0.59"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -273,10 +273,10 @@ foreach ($vmHost in $vmHosts) {
                 # Debug output to identify null values
                 Write-Host "Debug - $($vSwitch.Name): NICs=[$($nicList -join ', ')], ActiveNICs=[$($activeNicList -join ', ')], StandbyNICs=[$($standbyNicList -join ', ')], VMkernels=[$vmkList]" -ForegroundColor Yellow
                 
-                # Ensure arrays are not null before joining
-                $nicString = [String]::Join(', ', ($nicList ? $nicList : @()))
-                $activeNicString = [String]::Join(', ', ($activeNicList ? $activeNicList : @()))
-                $standbyNicString = [String]::Join(', ', ($standbyNicList ? $standbyNicList : @()))
+                # Join arrays directly since they’re guaranteed to be non-null
+                $nicString = [String]::Join(', ', $nicList)
+                $activeNicString = [String]::Join(', ', $activeNicList)
+                $standbyNicString = [String]::Join(', ', $standbyNicList)
 
                 Write-Host "$($vSwitch.Name) NICs: $nicString, VMkernels: $vmkList" -ForegroundColor White
 
