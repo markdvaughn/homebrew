@@ -27,18 +27,17 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.59
+    Version: 1.0.60
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.58 omitted for brevity, see prior script for full history]
-    1.0.58 - February 27, 2025
-        - Fixed recurring "Value cannot be null" error in Standard vSwitches section by strengthening null checks and ensuring all arrays for [String]::Join() are initialized.
-        - Added debug output to identify null values before [String]::Join() calls.
+    # [Previous versions 1.0.25 to 1.0.59 omitted for brevity, see prior script for full history]
     1.0.59 - February 27, 2025
         - Removed ternary operator (? :) introduced in 1.0.58 for null protection in Standard vSwitches section, replaced with PowerShell 5.1-compatible logic.
+    1.0.60 - February 27, 2025
+        - Fixed persistent "Value cannot be null" error in Standard vSwitches section by simplifying string joining and moving debug output closer to [String]::Join() calls for precise troubleshooting.
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +49,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.59"
+$scriptVersion = "1.0.60"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -262,7 +261,7 @@ foreach ($vmHost in $vmHosts) {
                 } else {
                     @('None')
                 }
-                $vmkList = [String]::Join(', ', $vmkArray)
+                $vmkList = if ($vmkArray) { [String]::Join(', ', $vmkArray) } else { 'None' }
                 
                 # NIC lists with explicit null handling
                 $nicList = if ($vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
@@ -270,27 +269,23 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = if ($teaming -and $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                # Debug output to identify null values
+                # Debug output right before joining
                 Write-Host "Debug - $($vSwitch.Name): NICs=[$($nicList -join ', ')], ActiveNICs=[$($activeNicList -join ', ')], StandbyNICs=[$($standbyNicList -join ', ')], VMkernels=[$vmkList]" -ForegroundColor Yellow
                 
-                # Join arrays directly since they’re guaranteed to be non-null
-                $nicString = [String]::Join(', ', $nicList)
-                $activeNicString = [String]::Join(', ', $activeNicList)
-                $standbyNicString = [String]::Join(', ', $standbyNicList)
-
-                Write-Host "$($vSwitch.Name) NICs: $nicString, VMkernels: $vmkList" -ForegroundColor White
+                # Join arrays directly and use in both Write-Host and PSCustomObject
+                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', $nicList)), VMkernels: $vmkList" -ForegroundColor White
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
                     Ports = $vSwitch.NumPorts
                     MTU = $vSwitch.MTU
-                    NICs = $nicString
+                    NICs = [String]::Join(', ', $nicList)
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
-                    ActiveNICs = $activeNicString
-                    StandbyNICs = $standbyNicString
+                    ActiveNICs = [String]::Join(', ', $activeNicList)
+                    StandbyNICs = [String]::Join(', ', $standbyNicList)
                     VMkernels_VLANs = $vmkList
                 }
             } catch {
