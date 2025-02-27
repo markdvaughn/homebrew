@@ -27,18 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.57
+    Version: 1.0.58
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.56 omitted for brevity, see prior script for full history]
-    1.0.56 - February 27, 2025
-        - Fixed "Value cannot be null" error in Standard vSwitches section by ensuring all arrays for [String]::Join() are non-null.
-        - Corrected vDS VMkernel VLANs showing "System.Object[]" by refining VLAN retrieval to handle arrays/objects explicitly.
+    # [Previous versions 1.0.25 to 1.0.57 omitted for brevity, see prior script for full history]
     1.0.57 - February 27, 2025
         - Replaced ternary operator (? :) with if-else in Distributed vSwitches section to ensure compatibility with PowerShell 5.1.
+    1.0.58 - February 27, 2025
+        - Fixed recurring "Value cannot be null" error in Standard vSwitches section by strengthening null checks and ensuring all arrays for [String]::Join() are initialized.
+        - Added debug output to identify null values before [String]::Join() calls.
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.57"
+$scriptVersion = "1.0.58"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -251,6 +251,7 @@ foreach ($vmHost in $vmHosts) {
                 $security = $vSwitch | Get-SecurityPolicy -Server $viServer
                 $teaming = $vSwitch | Get-NicTeamingPolicy -Server $viServer
                 
+                # VMkernel list
                 $relatedVmk = $vmkAdapters | Where-Object { $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch -Server $viServer).Name }
                 $vmkArray = if ($relatedVmk) {
                     @($relatedVmk | ForEach-Object { 
@@ -263,24 +264,33 @@ foreach ($vmHost in $vmHosts) {
                 }
                 $vmkList = [String]::Join(', ', $vmkArray)
                 
+                # NIC lists with explicit null handling
                 $nicList = if ($vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
                 $activeNicList = if ($teaming -and $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
                 $standbyNicList = if ($teaming -and $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', $nicList)), VMkernels: $vmkList" -ForegroundColor White
+                # Debug output to identify null values
+                Write-Host "Debug - $($vSwitch.Name): NICs=[$($nicList -join ', ')], ActiveNICs=[$($activeNicList -join ', ')], StandbyNICs=[$($standbyNicList -join ', ')], VMkernels=[$vmkList]" -ForegroundColor Yellow
+                
+                # Ensure arrays are not null before joining
+                $nicString = [String]::Join(', ', ($nicList ? $nicList : @()))
+                $activeNicString = [String]::Join(', ', ($activeNicList ? $activeNicList : @()))
+                $standbyNicString = [String]::Join(', ', ($standbyNicList ? $standbyNicList : @()))
+
+                Write-Host "$($vSwitch.Name) NICs: $nicString, VMkernels: $vmkList" -ForegroundColor White
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
                     Ports = $vSwitch.NumPorts
                     MTU = $vSwitch.MTU
-                    NICs = [String]::Join(', ', $nicList)
+                    NICs = $nicString
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
-                    ActiveNICs = [String]::Join(', ', $activeNicList)
-                    StandbyNICs = [String]::Join(', ', $standbyNicList)
+                    ActiveNICs = $activeNicString
+                    StandbyNICs = $standbyNicString
                     VMkernels_VLANs = $vmkList
                 }
             } catch {
