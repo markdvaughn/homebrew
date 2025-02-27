@@ -27,19 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.56
+    Version: 1.0.57
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.55 omitted for brevity, see prior script for full history]
-    1.0.55 - February 27, 2025
-        - Fixed "System.Object[]" display for vDS VMkernel VLANs in VMkernel Interfaces section by ensuring single-string VLAN output.
-        - Corrected VLAN repetition in Distributed vSwitches VMkernels_VLANs column (e.g., "VLAN 1221 1221 1221" to "VLAN 1221").
+    # [Previous versions 1.0.25 to 1.0.56 omitted for brevity, see prior script for full history]
     1.0.56 - February 27, 2025
         - Fixed "Value cannot be null" error in Standard vSwitches section by ensuring all arrays for [String]::Join() are non-null.
         - Corrected vDS VMkernel VLANs showing "System.Object[]" by refining VLAN retrieval to handle arrays/objects explicitly.
+    1.0.57 - February 27, 2025
+        - Replaced ternary operator (? :) with if-else in Distributed vSwitches section to ensure compatibility with PowerShell 5.1.
 #>
 
 # --- Configuration Variables ---
@@ -51,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.56"
+$scriptVersion = "1.0.57"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -358,7 +357,7 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = @()
                 $loadBalancing = 'N/A'
                 if ($teaming) {
-                    $loadBalancing = $teaming.LoadBalancingPolicy ? $teaming.LoadBalancingPolicy : 'N/A'
+                    $loadBalancing = if ($teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
                     if ($teaming.ActiveUplink -and $proxySwitch -and $proxySwitch.Pnic) {
                         $uplinkPorts = $dvSwitch.ExtensionData.Config.UplinkPortPolicy.UplinkPortName
                         $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
@@ -376,7 +375,7 @@ foreach ($vmHost in $vmHosts) {
 
                 [PSCustomObject]@{
                     Name = $dvSwitch.Name
-                    Ports = $vSwitch.NumPorts
+                    Ports = $dvSwitch.NumPorts
                     MTU = $dvSwitch.Mtu
                     NICs = $uplinkNames
                     Promiscuous = $security.AllowPromiscuous
