@@ -27,17 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.60
+    Version: 1.0.61
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.59 omitted for brevity, see prior script for full history]
-    1.0.59 - February 27, 2025
-        - Removed ternary operator (? :) introduced in 1.0.58 for null protection in Standard vSwitches section, replaced with PowerShell 5.1-compatible logic.
+    # [Previous versions 1.0.25 to 1.0.60 omitted for brevity, see prior script for full history]
     1.0.60 - February 27, 2025
         - Fixed persistent "Value cannot be null" error in Standard vSwitches section by simplifying string joining and moving debug output closer to [String]::Join() calls for precise troubleshooting.
+    1.0.61 - February 27, 2025
+        - Fixed "Value cannot be null" error in Standard vSwitches section by pre-joining NIC lists into strings before [PSCustomObject] creation, avoiding mid-evaluation null issues.
+        - Added debug output immediately before [PSCustomObject] to confirm variable states.
 #>
 
 # --- Configuration Variables ---
@@ -49,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.60"
+$scriptVersion = "1.0.61"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -269,23 +270,30 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = if ($teaming -and $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                # Debug output right before joining
-                Write-Host "Debug - $($vSwitch.Name): NICs=[$($nicList -join ', ')], ActiveNICs=[$($activeNicList -join ', ')], StandbyNICs=[$($standbyNicList -join ', ')], VMkernels=[$vmkList]" -ForegroundColor Yellow
+                # Pre-join NIC lists into strings
+                $nicString = [String]::Join(', ', $nicList)
+                $activeNicString = [String]::Join(', ', $activeNicList)
+                $standbyNicString = [String]::Join(', ', $standbyNicList)
+
+                # Debug output before Write-Host
+                Write-Host "Debug Before Write - $($vSwitch.Name): NICs=[$nicString], ActiveNICs=[$activeNicString], StandbyNICs=[$standbyNicString], VMkernels=[$vmkList]" -ForegroundColor Yellow
                 
-                # Join arrays directly and use in both Write-Host and PSCustomObject
-                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', $nicList)), VMkernels: $vmkList" -ForegroundColor White
+                Write-Host "$($vSwitch.Name) NICs: $nicString, VMkernels: $vmkList" -ForegroundColor White
+
+                # Debug output right before PSCustomObject
+                Write-Host "Debug Before PSCustomObject - $($vSwitch.Name): NICs=[$nicString], ActiveNICs=[$activeNicString], StandbyNICs=[$standbyNicString], VMkernels=[$vmkList]" -ForegroundColor Yellow
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
                     Ports = $vSwitch.NumPorts
                     MTU = $vSwitch.MTU
-                    NICs = [String]::Join(', ', $nicList)
+                    NICs = $nicString
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
-                    ActiveNICs = [String]::Join(', ', $activeNicList)
-                    StandbyNICs = [String]::Join(', ', $standbyNicList)
+                    ActiveNICs = $activeNicString
+                    StandbyNICs = $standbyNicString
                     VMkernels_VLANs = $vmkList
                 }
             } catch {
