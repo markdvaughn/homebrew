@@ -1,4 +1,28 @@
-#Requires -Modules VMware.PowerCLI
+<#
+.SYNOPSIS
+    Generates an HTML report of ESXi host hardware and configuration details from a selected vCenter server.
+
+.DESCRIPTION
+    This script connects to a vCenter server, collects detailed information about ESXi hosts,
+    and generates a styled HTML report with the data. Features include vCenter selection,
+    customizable output paths, and comprehensive host information.
+
+.VERSION HISTORY
+    1.0.0 - Initial release
+    1.0.1 - Added vCenter server to output filename
+    1.0.2 - Added documentation section with version history
+
+.AUTHOR
+    [Your Name]
+
+.DATE
+    February 26, 2025
+
+.REQUIREMENTS
+    - VMware PowerCLI module installed
+    - Network access to vCenter server
+    - Appropriate vCenter credentials
+#>
 
 # Pre-defined vCenter server list
 $vCenterList = @(
@@ -187,7 +211,7 @@ try {
     # Complete HTML
     $html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>$htmlBody</body></html>"
 
-    # Save to file
+    # Save to file with vCenter server in filename
     $outputFile = Join-Path $outputPath "ESXi_Host_Report_$vCenterServer_$(Get-Date -Format 'yyyyMMdd_HHmmss').html"
     $html | Out-File $outputFile
     Write-Host "Report generated successfully: $outputFile" -ForegroundColor Green
