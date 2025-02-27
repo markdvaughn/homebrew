@@ -27,19 +27,19 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.55
+    Version: 1.0.56
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.54 omitted for brevity, see prior script for full history]
-    1.0.54 - February 27, 2025
-        - Fixed missing VLAN IDs for vDS VMkernels in VMkernel Interfaces and Distributed vSwitches sections.
-        - Enhanced VLAN retrieval using VlanConfiguration with Get-View fallback for compatibility.
+    # [Previous versions 1.0.25 to 1.0.55 omitted for brevity, see prior script for full history]
     1.0.55 - February 27, 2025
         - Fixed "System.Object[]" display for vDS VMkernel VLANs in VMkernel Interfaces section by ensuring single-string VLAN output.
         - Corrected VLAN repetition in Distributed vSwitches VMkernels_VLANs column (e.g., "VLAN 1221 1221 1221" to "VLAN 1221").
+    1.0.56 - February 27, 2025
+        - Fixed "Value cannot be null" error in Standard vSwitches section by ensuring all arrays for [String]::Join() are non-null.
+        - Corrected vDS VMkernel VLANs showing "System.Object[]" by refining VLAN retrieval to handle arrays/objects explicitly.
 #>
 
 # --- Configuration Variables ---
@@ -51,7 +51,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.55"
+$scriptVersion = "1.0.56"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -190,7 +190,6 @@ foreach ($vmHost in $vmHosts) {
                 'N/A' 
             }
             
-            # Improved VLAN ID retrieval
             $vlanId = 'N/A'
             if ($vmk.PortGroupName) {
                 $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
@@ -201,9 +200,9 @@ foreach ($vmHost in $vmHosts) {
                     if ($portGroup) {
                         if ($portGroup.VlanConfiguration) {
                             $vlanConfig = $portGroup.VlanConfiguration
-                            if ($vlanConfig.VlanId) {
-                                $vlanId = $vlanConfig.VlanId.ToString()
-                            } elseif ($vlanConfig.VlanRange) {
+                            if ($vlanConfig.VlanId -ne $null) {
+                                $vlanId = [string]$vlanConfig.VlanId
+                            } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                 $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                             } else {
                                 $vlanId = '0'
@@ -212,9 +211,9 @@ foreach ($vmHost in $vmHosts) {
                             $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
                             if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                 $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                                    $vlanId = $vlanConfig.VlanId.ToString()
-                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
+                                    $vlanId = [string]$vlanConfig.VlanId
+                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                 } else {
                                     $vlanId = '0'
@@ -254,22 +253,23 @@ foreach ($vmHost in $vmHosts) {
                 $teaming = $vSwitch | Get-NicTeamingPolicy -Server $viServer
                 
                 $relatedVmk = $vmkAdapters | Where-Object { $_.PortGroupName -in (Get-VirtualPortGroup -VirtualSwitch $vSwitch -Server $viServer).Name }
-                $vmkList = if ($relatedVmk) {
-                    $vmkArray = @($relatedVmk | ForEach-Object { 
+                $vmkArray = if ($relatedVmk) {
+                    @($relatedVmk | ForEach-Object { 
                         $portGroup = Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
                         $vlanId = if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                         "$($_.Name) (VLAN $vlanId)"
                     })
-                    [String]::Join(', ', $vmkArray)
                 } else {
-                    'None'
+                    @('None')
                 }
-                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', @($vSwitch.Nic))), VMkernels: $vmkList" -ForegroundColor White
+                $vmkList = [String]::Join(', ', $vmkArray)
+                
+                $nicList = if ($vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
+                $activeNicList = if ($teaming -and $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
+                $standbyNicList = if ($teaming -and $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
+                $loadBalancing = if ($teaming -and $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
-                $activeNicList = if ($teaming -and $null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
-                $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
-                $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
+                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', $nicList)), VMkernels: $vmkList" -ForegroundColor White
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
@@ -325,9 +325,9 @@ foreach ($vmHost in $vmHosts) {
                         if ($portGroup) {
                             if ($portGroup.VlanConfiguration) {
                                 $vlanConfig = $portGroup.VlanConfiguration
-                                if ($vlanConfig.VlanId) {
-                                    $vlanId = $vlanConfig.VlanId.ToString()
-                                } elseif ($vlanConfig.VlanRange) {
+                                if ($vlanConfig.VlanId -ne $null) {
+                                    $vlanId = [string]$vlanConfig.VlanId
+                                } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                                 } else {
                                     $vlanId = '0'
@@ -336,9 +336,9 @@ foreach ($vmHost in $vmHosts) {
                                 $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
                                 if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                     $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                    if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                                        $vlanId = $vlanConfig.VlanId.ToString()
-                                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                    if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
+                                        $vlanId = [string]$vlanConfig.VlanId
+                                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                         $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                     } else {
                                         $vlanId = '0'
@@ -357,8 +357,8 @@ foreach ($vmHost in $vmHosts) {
                 $activeNicList = @()
                 $standbyNicList = @()
                 $loadBalancing = 'N/A'
-                if ($null -ne $teaming) {
-                    $loadBalancing = $teaming.LoadBalancingPolicy
+                if ($teaming) {
+                    $loadBalancing = $teaming.LoadBalancingPolicy ? $teaming.LoadBalancingPolicy : 'N/A'
                     if ($teaming.ActiveUplink -and $proxySwitch -and $proxySwitch.Pnic) {
                         $uplinkPorts = $dvSwitch.ExtensionData.Config.UplinkPortPolicy.UplinkPortName
                         $pnicList = $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
@@ -376,7 +376,7 @@ foreach ($vmHost in $vmHosts) {
 
                 [PSCustomObject]@{
                     Name = $dvSwitch.Name
-                    Ports = $dvSwitch.NumPorts
+                    Ports = $vSwitch.NumPorts
                     MTU = $dvSwitch.Mtu
                     NICs = $uplinkNames
                     Promiscuous = $security.AllowPromiscuous
