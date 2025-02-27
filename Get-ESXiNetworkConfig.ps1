@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.43
+    Version: 1.0.44
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -74,6 +74,8 @@
         - Changed progress/information messages (including simplified data output) from Yellow to White.
     1.0.43 - February 26, 2025
         - Fixed warning in VMkernel Interfaces section by dynamically using Get-VirtualPortGroup -Standard or Get-VDPortgroup based on port group type.
+    1.0.44 - February 26, 2025
+        - Fixed VLAN ID detection for VMkernel adapters on distributed vSwitches by correctly retrieving VlanId from Get-VDPortgroup.
 #>
 
 # --- Configuration Variables ---
@@ -256,13 +258,22 @@ foreach ($vmHost in $vmHosts) {
             } else { 
                 'N/A' 
             }
-            # Check if the port group is distributed or standard
-            $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
-            if (-not $portGroup) {
-                $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
-                $vlanId = if ($portGroup) { $portGroup.VlanConfiguration.VlanId } else { 'N/A' }
+            # Check if the port group is standard or distributed
+            $portGroupStandard = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+            if ($portGroupStandard) {
+                $vlanId = $portGroupStandard.VLanId
             } else {
-                $vlanId = $portGroup.VLanId
+                $portGroupDistributed = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                $vlanId = if ($portGroupDistributed) { 
+                    # Handle VLAN trunking or single VLAN
+                    if ($portGroupDistributed.VlanConfiguration -and $portGroupDistributed.VlanConfiguration.VlanType -eq 'Trunk') {
+                        "Trunk ($($portGroupDistributed.VlanConfiguration.VlanId))"
+                    } else {
+                        $portGroupDistributed.VlanId
+                    }
+                } else { 
+                    'N/A' 
+                }
             }
             Write-Host "$($vmk.Name) IP: $($vmk.IP), Gateway: $vmkGateway" -ForegroundColor White
 
@@ -282,7 +293,7 @@ foreach ($vmHost in $vmHosts) {
         }
         $htmlContent.Add(($vmkData | ConvertTo-Html -Fragment)) | Out-Null
 
-        # --- Standard vSwitch Configuration ---
+        # --- Standard vSwitches ---
         $htmlContent.Add('<h2 id="vSwitch">Standard vSwitches</h2>') | Out-Null
         $vSwitches = Get-VirtualSwitch -VMHost $vmHost -Standard -Server $viServer
         $vmkPortGroupNames = $vmkAdapters | ForEach-Object { $_.PortGroupName }
@@ -297,9 +308,20 @@ foreach ($vmHost in $vmHosts) {
                 }
                 $vmkList = if ($relatedVmk) {
                     $vmkArray = @($relatedVmk | ForEach-Object { 
-                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue).VLanId
-                        if ($null -eq $vlan) {
-                            $vlan = (Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue).VlanConfiguration.VlanId
+                        $portGroupStandard = Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+                        if ($portGroupStandard) {
+                            $vlan = $portGroupStandard.VLanId
+                        } else {
+                            $portGroupDistributed = Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                            $vlan = if ($portGroupDistributed) { 
+                                if ($portGroupDistributed.VlanConfiguration -and $portGroupDistributed.VlanConfiguration.VlanType -eq 'Trunk') {
+                                    "Trunk ($($portGroupDistributed.VlanConfiguration.VlanId))"
+                                } else {
+                                    $portGroupDistributed.VlanId
+                                }
+                            } else { 
+                                'N/A' 
+                            }
                         }
                         "$($_.Name) (VLAN $vlan)"
                     })
@@ -351,7 +373,7 @@ foreach ($vmHost in $vmHosts) {
         }
         $htmlContent.Add(($vSwitchData | ConvertTo-Html -Fragment)) | Out-Null
 
-        # --- Distributed vSwitch Configuration ---
+        # --- Distributed vSwitches ---
         $htmlContent.Add('<h2 id="dvSwitch">Distributed vSwitches</h2>') | Out-Null
         $dvSwitches = Get-VDSwitch -VMHost $vmHost -Server $viServer
         $dvSwitchData = if ($dvSwitches.Count -gt 0) {
@@ -444,7 +466,7 @@ foreach ($vmHost in $vmHosts) {
             foreach ($pg in $dvPortGroups) {
                 $distributedPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
-                    'VLAN ID' = $pg.VlanConfiguration.VlanId
+                    'VLAN ID' = if ($pg.VlanConfiguration -and $pg.VlanConfiguration.VlanType -eq 'Trunk') { "Trunk ($($pg.VlanConfiguration.VlanId))" } else { $pg.VlanId }
                     'Associated vSwitch' = $dvSwitch.Name
                     SwitchType = 'Distributed'
                 }) | Out-Null
