@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.42
+    Version: 1.0.43
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -72,6 +72,8 @@
         - Simplified debug output starting from 1.0.40 baseline, removing 'Debug:' prefix and reducing verbosity for cleaner, user-friendly data display.
     1.0.42 - February 26, 2025
         - Changed progress/information messages (including simplified data output) from Yellow to White.
+    1.0.43 - February 26, 2025
+        - Fixed warning in VMkernel Interfaces section by dynamically using Get-VirtualPortGroup -Standard or Get-VDPortgroup based on port group type.
 #>
 
 # --- Configuration Variables ---
@@ -254,6 +256,14 @@ foreach ($vmHost in $vmHosts) {
             } else { 
                 'N/A' 
             }
+            # Check if the port group is distributed or standard
+            $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+            if (-not $portGroup) {
+                $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                $vlanId = if ($portGroup) { $portGroup.VlanConfiguration.VlanId } else { 'N/A' }
+            } else {
+                $vlanId = $portGroup.VLanId
+            }
             Write-Host "$($vmk.Name) IP: $($vmk.IP), Gateway: $vmkGateway" -ForegroundColor White
 
             [PSCustomObject]@{
@@ -266,7 +276,7 @@ foreach ($vmHost in $vmHosts) {
                 VMotion = $vmk.VMotionEnabled
                 FTLogging = $vmk.FaultToleranceLoggingEnabled
                 Management = $vmk.ManagementTrafficEnabled
-                VLAN = (Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
+                VLAN = $vlanId
                 MTU = $vmk.MTU
             }
         }
@@ -287,7 +297,10 @@ foreach ($vmHost in $vmHosts) {
                 }
                 $vmkList = if ($relatedVmk) {
                     $vmkArray = @($relatedVmk | ForEach-Object { 
-                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
+                        $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue).VLanId
+                        if ($null -eq $vlan) {
+                            $vlan = (Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue).VlanConfiguration.VlanId
+                        }
                         "$($_.Name) (VLAN $vlan)"
                     })
                     [String]::Join(', ', $vmkArray)
