@@ -27,18 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.63
+    Version: 1.0.64
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.62 omitted for brevity, see prior script for full history]
-    1.0.62 - February 27, 2025
-        - Further fixed "Value cannot be null" error by ensuring all string variables are pre-computed and null-safe before [PSCustomObject] creation, with enhanced debugging to verify integrity.
+    # [Previous versions 1.0.25 to 1.0.63 omitted for brevity, see prior script for full history]
     1.0.63 - February 27, 2025
         - Fixed repeated VLAN IDs (e.g., "1212 1212 1212") in VMkernel Interfaces and Distributed vSwitches sections by ensuring single-value assignment.
         - Fixed "Cannot bind parameter 'VDSwitch'" error in VM Port Groups section by correcting loop to use $dvSwitches instead of $vSwitches.
+    1.0.64 - February 27, 2025
+        - Fixed remaining VLAN repetition in Distributed vSwitches section (e.g., "1221 1221 1221") by enforcing scalar string conversion with ToString().
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.63"
+$scriptVersion = "1.0.64"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -200,7 +200,7 @@ foreach ($vmHost in $vmHosts) {
                         if ($portGroup.VlanConfiguration) {
                             $vlanConfig = $portGroup.VlanConfiguration
                             if ($vlanConfig.VlanId -ne $null) {
-                                $vlanId = [string]$vlanConfig.VlanId
+                                $vlanId = $vlanConfig.VlanId.ToString()  # Ensure single string
                             } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                 $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                             } else {
@@ -211,7 +211,7 @@ foreach ($vmHost in $vmHosts) {
                             if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                 $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
                                 if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
-                                    $vlanId = [string]$vlanConfig.VlanId
+                                    $vlanId = $vlanConfig.VlanId.ToString()  # Ensure single string
                                 } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                 } else {
@@ -338,7 +338,7 @@ foreach ($vmHost in $vmHosts) {
                             if ($portGroup.VlanConfiguration) {
                                 $vlanConfig = $portGroup.VlanConfiguration
                                 if ($vlanConfig.VlanId -ne $null) {
-                                    $vlanId = [string]$vlanConfig.VlanId
+                                    $vlanId = $vlanConfig.VlanId.ToString()  # Ensure single string
                                 } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                                 } else {
@@ -349,7 +349,7 @@ foreach ($vmHost in $vmHosts) {
                                 if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                     $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
                                     if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
-                                        $vlanId = [string]$vlanConfig.VlanId
+                                        $vlanId = $vlanConfig.VlanId.ToString()  # Ensure single string
                                     } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                         $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                     } else {
@@ -433,7 +433,7 @@ foreach ($vmHost in $vmHosts) {
             }
         }
         $distributedPortGroups = [System.Collections.ArrayList]::new()
-        foreach ($dvSwitch in $dvSwitches) {  # Corrected from $vSwitches to $dvSwitches
+        foreach ($dvSwitch in $dvSwitches) {
             $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer -ErrorAction SilentlyContinue
             foreach ($pg in $dvPortGroups) {
                 $vlanId = $pg.VlanId
@@ -469,7 +469,12 @@ foreach ($vmHost in $vmHosts) {
             Write-Host "Distributed Port Groups: $(($sortedDistributed | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor White
         }
         if ($vmPortGroupData.Count -eq 0) {
-            $vmPortGroupData.Add([PSCustomObject]@{ Name = 'None'; 'VLAN ID' = 'N/A'; 'Associated vSwitch' = 'N/A'; SwitchType = 'N/A' }) | Out-Null
+            $vmPortGroupData.Add([PSCustomObject]@{
+                Name = 'None'
+                'VLAN ID' = 'N/A'
+                'Associated vSwitch' = 'N/A'
+                SwitchType = 'N/A'
+            }) | Out-Null
             Write-Host "No VM Port Groups found." -ForegroundColor White
         }
         $htmlContent.Add(($vmPortGroupData | Select-Object Name, 'VLAN ID', 'Associated vSwitch' | ConvertTo-Html -Fragment)) | Out-Null
@@ -481,7 +486,10 @@ foreach ($vmHost in $vmHosts) {
         $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute -Server $viServer)) { @($vmHost | Get-VMHostRoute -Server $viServer | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         Write-Host "DNS Servers: $([String]::Join(', ', $dnsServersList))" -ForegroundColor White
         if ($staticRoutesList.Count -gt 0) { Write-Host "Static Routes: $([String]::Join(', ', $staticRoutesList))" -ForegroundColor White }
-        $dnsRoutingData = [PSCustomObject]@{ DNSServers = [String]::Join(', ', $dnsServersList); StaticRoutes = [String]::Join(', ', $staticRoutesList) }
+        $dnsRoutingData = [PSCustomObject]@{
+            DNSServers = [String]::Join(', ', $dnsServersList)
+            StaticRoutes = [String]::Join(', ', $staticRoutesList)
+        }
         $htmlContent.Add(($dnsRoutingData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- Firewall Rules ---
@@ -497,7 +505,11 @@ foreach ($vmHost in $vmHosts) {
         $ntpService = Get-VMHostService -VMHost $vmHost -Server $viServer | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         Write-Host "NTP Servers: $([String]::Join(', ', $ntpServersList))" -ForegroundColor White
-        $ntpData = [PSCustomObject]@{ NTPServers = [String]::Join(', ', $ntpServersList); Running = if ($null -ne $ntpService) { $ntpService.Running } else { 'N/A' }; Policy = if ($null -ne $ntpService) { $ntpService.Policy } else { 'N/A' } }
+        $ntpData = [PSCustomObject]@{
+            NTPServers = [String]::Join(', ', $ntpServersList)
+            Running = if ($null -ne $ntpService) { $ntpService.Running } else { 'N/A' }
+            Policy = if ($null -ne $ntpService) { $ntpService.Policy } else { 'N/A' }
+        }
         $htmlContent.Add(($ntpData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- Physical NIC Hardware Information with Network Hints ---
