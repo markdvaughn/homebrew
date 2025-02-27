@@ -27,8 +27,43 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.37
+    Version: 1.0.38
     Last Updated: February 26, 2025
+
+.VERSION HISTORY
+    1.0.24 - February 25, 2025
+        - Initial version provided by user with detailed ESXi network configuration reporting.
+    1.0.25 - February 25, 2025
+        - Fixed VM Port Groups sorting to list standard switch port groups first by vSwitch name then VLAN ID, followed by distributed switch port groups similarly sorted.
+        - Corrected AddRange error by ensuring sorted collections are arrays with @().
+    1.0.26 - February 25, 2025
+        - Moved VMkernel Interfaces section before Standard vSwitches in report and Table of Contents.
+        - Changed timestamp styling to smaller, non-bold text using CSS class.
+    1.0.27 - February 25, 2025
+        - Added N/A table entry for Distributed vSwitches when none exist.
+    1.0.28 - February 25, 2025
+        - Modified Distributed vSwitches N/A entry to show 'N/A' only in Name column, leaving others blank.
+    1.0.29 - February 25, 2025
+        - Included vCenter server name in output filename (e.g., NetworkConfig_<vCenterServer>_<hostname>_<timestamp>.html).
+    1.0.30 - February 25, 2025
+        - Added try/catch around vSwitch processing to handle String.Join null errors, initializing NIC lists as arrays.
+    1.0.31 - February 25, 2025
+        - Replaced -join with [String]::Join() in Write-Host to handle nulls in debug output.
+    1.0.32 - February 25, 2025
+        - Added debug output for teaming state and stricter null checks to prevent String.Join errors.
+    1.0.33 - February 25, 2025
+        - Enhanced debug with pre-join values and separated String.Join operations to isolate null issues.
+    1.0.34 - February 26, 2025
+        - Added disconnection of previous vCenter sessions and -Server parameter to scope queries to current vCenter.
+    1.0.35 - February 26, 2025
+        - Added pre-populated vCenter list and output path options (default or custom) with interactive prompts.
+    1.0.36 - February 26, 2025
+        - Enhanced vCenter list with descriptions; added script directory as third output path option.
+    1.0.37 - February 26, 2025
+        - Added Get-NumericChoice function for numeric validation with re-prompting for vCenter and output path selections.
+    1.0.38 - February 26, 2025
+        - Added color-coded console output: Cyan (headers), Green (success), Yellow (progress), Red (errors).
+        - Included .VERSION HISTORY section documenting all changes from 1.0.24 to 1.0.38.
 #>
 
 # --- Configuration Variables ---
@@ -64,12 +99,12 @@ function Get-NumericChoice {
         [int]$Max
     )
     do {
-        Write-Host $Prompt
+        Write-Host $Prompt -ForegroundColor Cyan
         $input = Read-Host "Enter a number ($Min-$Max)"
         if ($input -match '^\d+$' -and [int]$input -ge $Min -and [int]$input -le $Max) {
             return [int]$input
         } else {
-            Write-Host "Invalid input. Please enter a number between $Min and $Max."
+            Write-Host "Invalid input. Please enter a number between $Min and $Max." -ForegroundColor Red
         }
     } while ($true)
 }
@@ -85,10 +120,10 @@ $selection = Get-NumericChoice -Prompt $vCenterPrompt -Min 1 -Max ($vCenterList.
 
 if ($selection -ge 1 -and $selection -le $vCenterList.Count) {
     $vCenterServer = $vCenterList[$selection - 1].Server
-    Write-Host "Selected vCenter: $vCenterServer ($($vCenterList[$selection - 1].Description))"
+    Write-Host "Selected vCenter: $vCenterServer ($($vCenterList[$selection - 1].Description))" -ForegroundColor Green
 } else {
     $vCenterServer = Read-Host "Enter vCenter Server hostname or IP"
-    Write-Host "Using custom vCenter: $vCenterServer"
+    Write-Host "Using custom vCenter: $vCenterServer" -ForegroundColor Green
 }
 
 # Prompt for credentials
@@ -105,16 +140,16 @@ $pathChoice = Get-NumericChoice -Prompt $outputPrompt -Min 1 -Max 3
 switch ($pathChoice) {
     1 { 
         $outputPath = $defaultOutputPath
-        Write-Host "Using default output path: $outputPath"
+        Write-Host "Using default output path: $outputPath" -ForegroundColor Green
     }
     2 { 
         $outputPath = $scriptPath
-        Write-Host "Using script execution directory: $outputPath"
+        Write-Host "Using script execution directory: $outputPath" -ForegroundColor Green
     }
     3 { 
         $customPath = Read-Host "Enter custom output path"
         $outputPath = $customPath
-        Write-Host "Using custom output path: $outputPath"
+        Write-Host "Using custom output path: $outputPath" -ForegroundColor Green
     }
 }
 
@@ -122,10 +157,10 @@ switch ($pathChoice) {
 if (-not (Test-Path -Path $outputPath)) {
     try {
         New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
-        Write-Host "Created output directory: $outputPath"
+        Write-Host "Created output directory: $outputPath" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Failed to create output directory $outputPath : $_"
+        Write-Host "Failed to create output directory $outputPath : $_" -ForegroundColor Red
         exit
     }
 }
@@ -133,17 +168,17 @@ if (-not (Test-Path -Path $outputPath)) {
 # Disconnect from any existing vCenter connections
 if ($global:DefaultVIServers) {
     Disconnect-VIServer -Server * -Force -Confirm:$false
-    Write-Host "Disconnected from all previous vCenter servers."
+    Write-Host "Disconnected from all previous vCenter servers." -ForegroundColor Green
 }
 
 try {
     # Connect to the specified vCenter
-    Write-Host "Connecting to $vCenterServer..."
+    Write-Host "Connecting to $vCenterServer..." -ForegroundColor Yellow
     $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
-    Write-Host "Connected to $vCenterServer successfully."
+    Write-Host "Connected to $vCenterServer successfully." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Failed to connect to $vCenterServer : $_"
+    Write-Host "Failed to connect to $vCenterServer : $_" -ForegroundColor Red
     exit
 }
 
@@ -167,7 +202,7 @@ $css = @"
 $vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
 
 foreach ($vmHost in $vmHosts) {
-    Write-Host "Processing network configuration for host: $($vmHost.Name)"
+    Write-Host "Processing network configuration for host: $($vmHost.Name)" -ForegroundColor Yellow
     
     $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
@@ -191,14 +226,14 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel -Server $viServer
-        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)"
+        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)" -ForegroundColor Yellow
         $routes = $vmHost | Get-VMHostRoute -Server $viServer
         $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
-        Write-Host "Debug: Full Routes: $([String]::Join(', ', $routeStrings))"
+        Write-Host "Debug: Full Routes: $([String]::Join(', ', $routeStrings))" -ForegroundColor Yellow
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
-        Write-Host "Debug: Route Default Gateway: $($defaultGateway)"
+        Write-Host "Debug: Route Default Gateway: $($defaultGateway)" -ForegroundColor Yellow
         $vmkData = foreach ($vmk in $vmkAdapters) {
-            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)"
+            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)" -ForegroundColor Yellow
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
             } elseif ($vmk.ManagementTrafficEnabled -and $defaultGateway -and $defaultGateway -ne '0.0.0.0') { 
@@ -241,17 +276,17 @@ foreach ($vmHost in $vmHosts) {
                         $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
                         "$($_.Name) (VLAN $vlan)"
                     })
-                    Write-Host "Joining vmkArray for $($vSwitch.Name): $([String]::Join(', ', $vmkArray))"
+                    Write-Host "Joining vmkArray for $($vSwitch.Name): $([String]::Join(', ', $vmkArray))" -ForegroundColor Yellow
                     [String]::Join(', ', $vmkArray)
                 } else {
                     'None'
                 }
 
-                Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)"
+                Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)" -ForegroundColor Yellow
                 if ($teaming) {
-                    Write-Host "Debug: ActiveNic is null: $($teaming.ActiveNic -eq $null)"
-                    Write-Host "Debug: StandbyNic is null: $($teaming.StandbyNic -eq $null)"
-                    Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')"
+                    Write-Host "Debug: ActiveNic is null: $($teaming.ActiveNic -eq $null)" -ForegroundColor Yellow
+                    Write-Host "Debug: StandbyNic is null: $($teaming.StandbyNic -eq $null)" -ForegroundColor Yellow
+                    Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')" -ForegroundColor Yellow
                 }
 
                 $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
@@ -259,17 +294,17 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                Write-Host "Debug: nicList before join: $(if ($nicList) { $nicList -join ', ' } else { 'empty' })"
-                Write-Host "Debug: activeNicList before join: $(if ($activeNicList) { $activeNicList -join ', ' } else { 'empty' })"
-                Write-Host "Debug: standbyNicList before join: $(if ($standbyNicList) { $standbyNicList -join ', ' } else { 'empty' })"
+                Write-Host "Debug: nicList before join: $(if ($nicList) { $nicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
+                Write-Host "Debug: activeNicList before join: $(if ($activeNicList) { $activeNicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
+                Write-Host "Debug: standbyNicList before join: $(if ($standbyNicList) { $standbyNicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
 
                 $nicString = [String]::Join(', ', @($nicList))
                 $activeNicString = [String]::Join(', ', @($activeNicList))
                 $standbyNicString = [String]::Join(', ', @($standbyNicList))
 
-                Write-Host "Joining nicList for $($vSwitch.Name): $nicString"
-                Write-Host "Joining activeNicList for $($vSwitch.Name): $activeNicString"
-                Write-Host "Joining standbyNicList for $($vSwitch.Name): $standbyNicString"
+                Write-Host "Joining nicList for $($vSwitch.Name): $nicString" -ForegroundColor Yellow
+                Write-Host "Joining activeNicList for $($vSwitch.Name): $activeNicString" -ForegroundColor Yellow
+                Write-Host "Joining standbyNicList for $($vSwitch.Name): $standbyNicString" -ForegroundColor Yellow
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
@@ -286,7 +321,7 @@ foreach ($vmHost in $vmHosts) {
                 }
             }
             catch {
-                Write-Warning "Error processing vSwitch $($vSwitch.Name) on $($vmHost.Name): $_"
+                Write-Host "Error processing vSwitch $($vSwitch.Name) on $($vmHost.Name): $_" -ForegroundColor Red
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
                     Ports = 'N/A'
@@ -314,9 +349,9 @@ foreach ($vmHost in $vmHosts) {
                 
                 $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
                 $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
-                Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)"
+                Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)" -ForegroundColor Yellow
                 if ($proxySwitch) {
-                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $([String]::Join(', ', $proxySwitch.Pnic))"
+                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $([String]::Join(', ', $proxySwitch.Pnic))" -ForegroundColor Yellow
                 }
                 
                 $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
@@ -325,7 +360,7 @@ foreach ($vmHost in $vmHosts) {
                     @()
                 }
                 $uplinkNames = if ($dvUplinks) {
-                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $([String]::Join(', ', $dvUplinks))"
+                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $([String]::Join(', ', $dvUplinks))" -ForegroundColor Yellow
                     [String]::Join(', ', $dvUplinks)
                 } else {
                     'None'
@@ -351,8 +386,8 @@ foreach ($vmHost in $vmHosts) {
                     }
                 }
 
-                Write-Host "Joining activeNicList for $($dvSwitch.Name): $([String]::Join(', ', $activeNicList))"
-                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $([String]::Join(', ', $standbyNicList))"
+                Write-Host "Joining activeNicList for $($dvSwitch.Name): $([String]::Join(', ', $activeNicList))" -ForegroundColor Yellow
+                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $([String]::Join(', ', $standbyNicList))" -ForegroundColor Yellow
 
                 [PSCustomObject]@{
                     Name = $dvSwitch.Name
@@ -440,8 +475,8 @@ foreach ($vmHost in $vmHosts) {
         $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
         $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute -Server $viServer)) { @($vmHost | Get-VMHostRoute -Server $viServer | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         
-        Write-Host "Joining dnsServersList: $([String]::Join(', ', $dnsServersList))"
-        Write-Host "Joining staticRoutesList: $([String]::Join(', ', $staticRoutesList))"
+        Write-Host "Joining dnsServersList: $([String]::Join(', ', $dnsServersList))" -ForegroundColor Yellow
+        Write-Host "Joining staticRoutesList: $([String]::Join(', ', $staticRoutesList))" -ForegroundColor Yellow
         
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
@@ -461,7 +496,7 @@ foreach ($vmHost in $vmHosts) {
         $ntpService = Get-VMHostService -VMHost $vmHost -Server $viServer | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         
-        Write-Host "Joining ntpServersList: $([String]::Join(', ', $ntpServersList))"
+        Write-Host "Joining ntpServersList: $([String]::Join(', ', $ntpServersList))" -ForegroundColor Yellow
         
         $ntpData = [PSCustomObject]@{
             NTPServers = [String]::Join(', ', $ntpServersList)
@@ -510,8 +545,8 @@ foreach ($vmHost in $vmHosts) {
                 } | ForEach-Object { $_.Name }
             )
             
-            Write-Host "Joining vSwitchList for $($nic.Name): $([String]::Join(', ', $vSwitchList))"
-            Write-Host "Debug: $($nic.Name) LinkSpeedMb: '$($nic.LinkSpeedMb)', SpeedMb from View: '$($nicSpeeds[$nic.Name])'"
+            Write-Host "Joining vSwitchList for $($nic.Name): $([String]::Join(', ', $vSwitchList))" -ForegroundColor Yellow
+            Write-Host "Debug: $($nic.Name) LinkSpeedMb: '$($nic.LinkSpeedMb)', SpeedMb from View: '$($nicSpeeds[$nic.Name])'" -ForegroundColor Yellow
             
             [PSCustomObject]@{
                 Name = $nic.Name
@@ -534,13 +569,13 @@ foreach ($vmHost in $vmHosts) {
         # Write to file with vCenter server name included in the specified output path
         $fileName = Join-Path -Path $outputPath -ChildPath "NetworkConfig_${vCenterServer}_$($vmHost.Name)_$timestamp.html"
         $htmlContent | Out-File -FilePath $fileName -Encoding UTF8
-        Write-Host "Generated report: $fileName"
+        Write-Host "Generated report: $fileName" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Error processing $($vmHost.Name): $_"
+        Write-Host "Error processing $($vmHost.Name): $_" -ForegroundColor Red
     }
 }
 
 # Disconnect from the vCenter server
 Disconnect-VIServer -Server $vCenterServer -Force -Confirm:$false
-Write-Host "Disconnected from $vCenterServer"
+Write-Host "Disconnected from $vCenterServer" -ForegroundColor Green
