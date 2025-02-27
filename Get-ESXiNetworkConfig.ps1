@@ -27,18 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.62
+    Version: 1.0.63
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.61 omitted for brevity, see prior script for full history]
-    1.0.61 - February 27, 2025
-        - Fixed "Value cannot be null" error in Standard vSwitches section by pre-joining NIC lists into strings before [PSCustomObject] creation, avoiding mid-evaluation null issues.
-        - Added debug output immediately before [PSCustomObject] to confirm variable states.
+    # [Previous versions 1.0.25 to 1.0.62 omitted for brevity, see prior script for full history]
     1.0.62 - February 27, 2025
         - Further fixed "Value cannot be null" error by ensuring all string variables are pre-computed and null-safe before [PSCustomObject] creation, with enhanced debugging to verify integrity.
+    1.0.63 - February 27, 2025
+        - Fixed repeated VLAN IDs (e.g., "1212 1212 1212") in VMkernel Interfaces and Distributed vSwitches sections by ensuring single-value assignment.
+        - Fixed "Cannot bind parameter 'VDSwitch'" error in VM Port Groups section by correcting loop to use $dvSwitches instead of $vSwitches.
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.62"
+$scriptVersion = "1.0.63"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -424,26 +424,38 @@ foreach ($vmHost in $vmHosts) {
         foreach ($vSwitch in $vSwitches) {
             $vmPortGroups = Get-VirtualPortGroup -VirtualSwitch $vSwitch -Server $viServer | Where-Object { $_.Name -notin $vmkPortGroupNames }
             foreach ($pg in $vmPortGroups) {
-                $standardPortGroups.Add([PSCustomObject]@{ Name = $pg.Name; 'VLAN ID' = $pg.VLanId; 'Associated vSwitch' = $vSwitch.Name; SwitchType = 'Standard' }) | Out-Null
+                $standardPortGroups.Add([PSCustomObject]@{
+                    Name = $pg.Name
+                    'VLAN ID' = $pg.VLanId
+                    'Associated vSwitch' = $vSwitch.Name
+                    SwitchType = 'Standard'
+                }) | Out-Null
             }
         }
         $distributedPortGroups = [System.Collections.ArrayList]::new()
-        foreach ($dvSwitch in $vSwitches) {
-            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
+        foreach ($dvSwitch in $dvSwitches) {  # Corrected from $vSwitches to $dvSwitches
+            $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer -ErrorAction SilentlyContinue
             foreach ($pg in $dvPortGroups) {
                 $vlanId = $pg.VlanId
                 if ($vlanId -eq $null -or $vlanId -eq 0) {
-                    $pgView = Get-View -Id $pg.ExtensionData.MoRef -Server $viServer
-                    $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                    $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                        $vlanConfig.VlanId
-                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                        "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
-                    } else {
-                        '0'
+                    $pgView = Get-View -Id $pg.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                    if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
+                        $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                        $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                            $vlanConfig.VlanId
+                        } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                            "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                        } else {
+                            '0'
+                        }
                     }
                 }
-                $distributedPortGroups.Add([PSCustomObject]@{ Name = $pg.Name; 'VLAN ID' = $vlanId; 'Associated vSwitch' = $dvSwitch.Name; SwitchType = 'Distributed' }) | Out-Null
+                $distributedPortGroups.Add([PSCustomObject]@{
+                    Name = $pg.Name
+                    'VLAN ID' = $vlanId
+                    'Associated vSwitch' = $dvSwitch.Name
+                    SwitchType = 'Distributed'
+                }) | Out-Null
             }
         }
         if ($standardPortGroups.Count -gt 0) {
