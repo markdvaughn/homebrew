@@ -25,10 +25,10 @@
     - Requires VMware PowerCLI module to be installed. Install with: Install-Module -Name VMware.PowerCLI
     - Must be run with sufficient vCenter permissions to view host configurations.
     - Ignores invalid SSL certificates by default.
-    - Current date used in script execution: February 26, 2025
+    - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.53
-    Last Updated: February 26, 2025
+    Version: 1.0.54
+    Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
@@ -100,6 +100,9 @@
     1.0.53 - February 26, 2025
         - Fixed VMkernel VLAN ID retrieval to correctly display VLANs for both standard and vDS VMkernels.
         - Added VMkernels_VLANs column to Distributed vSwitches section.
+    1.0.54 - February 27, 2025
+        - Fixed missing VLAN IDs for vDS VMkernels in VMkernel Interfaces and Distributed vSwitches sections.
+        - Enhanced VLAN retrieval using VlanConfiguration with Get-View fallback for compatibility.
 #>
 
 # --- Configuration Variables ---
@@ -118,7 +121,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Script name and version for footer
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.53"
+$scriptVersion = "1.0.54"
 
 # --- End Configuration Variables ---
 
@@ -306,7 +309,7 @@ foreach ($vmHost in $vmHosts) {
                 'N/A' 
             }
             
-            # Determine VLAN ID from port group
+            # Improved VLAN ID retrieval
             $vlanId = 'N/A'
             if ($vmk.PortGroupName) {
                 # Try standard vSwitch port group first
@@ -317,22 +320,35 @@ foreach ($vmHost in $vmHosts) {
                     # Distributed vSwitch port group
                     $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
                     if ($portGroup) {
-                        $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
-                        if ($pgView) {
-                            $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                            $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                        # Use VlanConfiguration directly if available (PowerCLI 13.1)
+                        if ($portGroup.VlanConfiguration) {
+                            $vlanConfig = $portGroup.VlanConfiguration
+                            $vlanId = if ($vlanConfig.VlanId) {
                                 $vlanConfig.VlanId
-                            } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                                "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                            } elseif ($vlanConfig.VlanRange) {
+                                "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                             } else {
                                 '0'
+                            }
+                        } else {
+                            # Fallback to Get-View for older compatibility
+                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                            if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
+                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                                $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                    $vlanConfig.VlanId
+                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                } else {
+                                    '0'
+                                }
                             }
                         }
                     }
                 }
             }
             
-            Write-Host "$($vmk.Name) IP: $($vmk.IP), Gateway: $vmkGateway" -ForegroundColor White
+            Write-Host "$($vmk.Name) IP: $($vmk.IP), Gateway: $vmkGateway, VLAN: $vlanId" -ForegroundColor White
 
             [PSCustomObject]@{
                 Name = $vmk.Name
@@ -454,28 +470,36 @@ foreach ($vmHost in $vmHosts) {
                 }
                 $uplinkNames = if ($dvUplinks) { [String]::Join(', ', $dvUplinks) } else { 'None' }
                 
-                # Get VMkernels associated with this vDS
+                # Get VMkernels associated with this vDS with corrected VLANs
                 $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
                 $relatedVmk = $vmkAdapters | Where-Object { $_.PortGroupName -in $dvPortGroups.Name }
                 $vmkList = if ($relatedVmk) {
                     $vmkArray = @($relatedVmk | ForEach-Object { 
                         $portGroup = Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
-                        $vlanId = if ($portGroup) {
-                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
-                            if ($pgView) {
-                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                        $vlanId = 'N/A'
+                        if ($portGroup) {
+                            if ($portGroup.VlanConfiguration) {
+                                $vlanConfig = $portGroup.VlanConfiguration
+                                $vlanId = if ($vlanConfig.VlanId) {
                                     $vlanConfig.VlanId
-                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                } elseif ($vlanConfig.VlanRange) {
+                                    "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                                 } else {
                                     '0'
                                 }
                             } else {
-                                'N/A'
+                                $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                                if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
+                                    $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                                    $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                        $vlanConfig.VlanId
+                                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                        "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                    } else {
+                                        '0'
+                                    }
+                                }
                             }
-                        } else {
-                            'N/A'
                         }
                         "$($_.Name) (VLAN $vlanId)"
                     })
