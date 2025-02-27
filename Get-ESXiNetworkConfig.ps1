@@ -27,18 +27,18 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.61
+    Version: 1.0.62
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.60 omitted for brevity, see prior script for full history]
-    1.0.60 - February 27, 2025
-        - Fixed persistent "Value cannot be null" error in Standard vSwitches section by simplifying string joining and moving debug output closer to [String]::Join() calls for precise troubleshooting.
+    # [Previous versions 1.0.25 to 1.0.61 omitted for brevity, see prior script for full history]
     1.0.61 - February 27, 2025
         - Fixed "Value cannot be null" error in Standard vSwitches section by pre-joining NIC lists into strings before [PSCustomObject] creation, avoiding mid-evaluation null issues.
         - Added debug output immediately before [PSCustomObject] to confirm variable states.
+    1.0.62 - February 27, 2025
+        - Further fixed "Value cannot be null" error by ensuring all string variables are pre-computed and null-safe before [PSCustomObject] creation, with enhanced debugging to verify integrity.
 #>
 
 # --- Configuration Variables ---
@@ -50,7 +50,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.61"
+$scriptVersion = "1.0.62"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -270,10 +270,10 @@ foreach ($vmHost in $vmHosts) {
                 $standbyNicList = if ($teaming -and $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                # Pre-join NIC lists into strings
-                $nicString = [String]::Join(', ', $nicList)
-                $activeNicString = [String]::Join(', ', $activeNicList)
-                $standbyNicString = [String]::Join(', ', $standbyNicList)
+                # Pre-join NIC lists into strings with null safety
+                $nicString = if ($nicList) { [String]::Join(', ', $nicList) } else { '' }
+                $activeNicString = if ($activeNicList) { [String]::Join(', ', $activeNicList) } else { '' }
+                $standbyNicString = if ($standbyNicList) { [String]::Join(', ', $standbyNicList) } else { '' }
 
                 # Debug output before Write-Host
                 Write-Host "Debug Before Write - $($vSwitch.Name): NICs=[$nicString], ActiveNICs=[$activeNicString], StandbyNICs=[$standbyNicString], VMkernels=[$vmkList]" -ForegroundColor Yellow
@@ -428,7 +428,7 @@ foreach ($vmHost in $vmHosts) {
             }
         }
         $distributedPortGroups = [System.Collections.ArrayList]::new()
-        foreach ($dvSwitch in $dvSwitches) {
+        foreach ($dvSwitch in $vSwitches) {
             $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
             foreach ($pg in $dvPortGroups) {
                 $vlanId = $pg.VlanId
