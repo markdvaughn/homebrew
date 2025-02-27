@@ -4,19 +4,19 @@
 
 .DESCRIPTION
     This script connects to a vCenter server, collects detailed network configuration data 
-    for all managed ESXi hosts, and generates individual HTML reports for each host. The 
-    reports include standard and distributed vSwitch configurations, VMkernel interfaces, 
-    VM port groups, DNS and routing details, firewall rules, NTP settings, and physical NIC 
-    information with CDP/LLDP data.
+    for all managed ESXi hosts or hosts in a selected cluster, and generates individual HTML 
+    reports for each host. The reports include standard and distributed vSwitch configurations, 
+    VMkernel interfaces, VM port groups, DNS and routing details, firewall rules, NTP settings, 
+    and physical NIC information with CDP/LLDP data.
 
 .PARAMETER None
     This script does not accept parameters. It prompts for vCenter server selection, 
-    credentials, and output path interactively.
+    credentials, output path, and cluster selection interactively.
 
 .EXAMPLE
     .\Get-ESXiNetworkConfig.ps1
     Runs the script, prompting for vCenter server selection with descriptions, credentials, 
-    and output path options, then generates HTML reports in the specified directory.
+    output path, and cluster selection, then generates HTML reports in the specified directory.
 
 .OUTPUTS
     HTML files named "NetworkConfig_<vCenterServer>_<hostname>_<timestamp>.html" for each ESXi host.
@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.51
+    Version: 1.0.52
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -93,7 +93,10 @@
     1.0.50 - February 26, 2025
         - Attempted to fix vDS VMkernel VLANs by using Get-View directly, but vDS VMkernels showed '0'.
     1.0.51 - February 26, 2025
-        - Fixed vDS VMkernel VLAN ID retrieval by querying host NetworkSystem config directly for VMkernel adapters.
+        - Attempted to fix vDS VMkernel VLANs by querying host NetworkConfig.Portgroup, but still showed '0'.
+    1.0.52 - February 26, 2025
+        - Fixed vDS VMkernel VLAN ID retrieval by querying NetworkConfig.Vnic for VMkernel-specific VLANs.
+        - Added cluster selection feature to query hosts from a specific cluster or all clusters.
 #>
 
 # --- Configuration Variables ---
@@ -112,7 +115,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Script name and version for footer
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.51"
+$scriptVersion = "1.0.52"
 
 # --- End Configuration Variables ---
 
@@ -172,6 +175,36 @@ if ($selection -ge 1 -and $selection -le $vCenterList.Count) {
 # Prompt for credentials
 $credential = Get-Credential -Message "Enter vCenter credentials for $vCenterServer"
 
+# Connect to the specified vCenter
+try {
+    Write-Host "Connecting to $vCenterServer..." -ForegroundColor White
+    $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
+    Write-Host "Connected to $vCenterServer successfully." -ForegroundColor Green
+}
+catch {
+    Write-Host "Failed to connect to $vCenterServer : $_" -ForegroundColor Red
+    exit
+}
+
+# Prompt for cluster selection
+$clusters = Get-Cluster -Server $viServer | Sort-Object Name
+$clusterPrompt = "Available VMware Clusters:`n"
+for ($i = 0; $i -lt $clusters.Count; $i++) {
+    $clusterPrompt += "$($i + 1). $($clusters[$i].Name)`n"
+}
+$clusterPrompt += "$($clusters.Count + 1). ALL clusters"
+
+$clusterSelection = Get-NumericChoice -Prompt $clusterPrompt -Min 1 -Max ($clusters.Count + 1)
+
+if ($clusterSelection -eq ($clusters.Count + 1)) {
+    Write-Host "Selected: ALL clusters" -ForegroundColor Green
+    $vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
+} else {
+    $selectedCluster = $clusters[$clusterSelection - 1]
+    Write-Host "Selected cluster: $($selectedCluster.Name)" -ForegroundColor Green
+    $vmHosts = Get-VMHost -Location $selectedCluster -Server $viServer | Sort-Object Name
+}
+
 # Prompt for output path
 $outputPrompt = "Output Path Options:`n"
 $outputPrompt += "1. Default path: $defaultOutputPath`n"
@@ -208,21 +241,10 @@ if (-not (Test-Path -Path $outputPath)) {
     }
 }
 
-# Disconnect from any existing vCenter connections
-if ($global:DefaultVIServers) {
-    Disconnect-VIServer -Server * -Force -Confirm:$false
-    Write-Host "Disconnected from all previous vCenter servers." -ForegroundColor Green
-}
-
-try {
-    # Connect to the specified vCenter
-    Write-Host "Connecting to $vCenterServer..." -ForegroundColor White
-    $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
-    Write-Host "Connected to $vCenterServer successfully." -ForegroundColor Green
-}
-catch {
-    Write-Host "Failed to connect to $vCenterServer : $_" -ForegroundColor Red
-    exit
+# Disconnect from any existing vCenter connections except the current one
+if ($global:DefaultVIServers | Where-Object { $_.Name -ne $vCenterServer }) {
+    Disconnect-VIServer -Server ($global:DefaultVIServers | Where-Object { $_.Name -ne $vCenterServer }) -Force -Confirm:$false
+    Write-Host "Disconnected from all previous vCenter servers except $vCenterServer." -ForegroundColor Green
 }
 
 # Define CSS for HTML output styling
@@ -241,9 +263,6 @@ $css = @"
     .footer { font-size: 10px; color: #666; text-align: center; margin-top: 20px; }
 </style>
 "@
-
-# Get all ESXi hosts managed by the current vCenter
-$vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
 
 foreach ($vmHost in $vmHosts) {
     Write-Host "Processing network configuration for host: $($vmHost.Name)" -ForegroundColor White
@@ -277,7 +296,7 @@ foreach ($vmHost in $vmHosts) {
         
         # Get host network system view for VMkernel VLAN info
         $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
-        $vmkConfig = $netSystem.NetworkConfig.Vmnics | Where-Object { $_.Device -in ($vmkAdapters | ForEach-Object { $_.Device }) }
+        $vnicConfig = $netSystem.NetworkConfig.Vnic
         
         $vmkData = foreach ($vmk in $vmkAdapters) {
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
@@ -288,34 +307,35 @@ foreach ($vmHost in $vmHosts) {
                 'N/A' 
             }
             
-            # Determine VLAN ID
+            # Determine VLAN ID from VMkernel config
             $vlanId = 'N/A'
-            if ($vmk.PortGroupName) {
-                # Try standard vSwitch port group first
-                $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
-                if ($portGroup) {
-                    $vlanId = $portGroup.VLanId
-                } else {
-                    # Distributed vSwitch: Get VLAN from host network config
-                    $vmkNetConfig = $netSystem.NetworkConfig.Portgroup | Where-Object { $_.Spec.Name -eq $vmk.PortGroupName }
-                    if ($vmkNetConfig) {
-                        $vlanId = $vmkNetConfig.Spec.VlanId
-                    } else {
-                        # Fallback to Get-VDPortgroup and Get-View
+            if ($vmk.Device) {
+                $vmkConfig = $vnicConfig | Where-Object { $_.Device -eq $vmk.Device }
+                if ($vmkConfig) {
+                    $vlanId = if ($vmkConfig.Spec.DistributedVirtualPort) {
+                        # vDS VMkernel: Get VLAN from port configuration
                         $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
                         if ($portGroup) {
                             $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
                             if ($pgView) {
                                 $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
                                     $vlanConfig.VlanId
                                 } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
                                     "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                 } else {
                                     '0'
                                 }
+                            } else {
+                                '0'
                             }
+                        } else {
+                            'N/A'
                         }
+                    } else {
+                        # Standard vSwitch: Use port group VLAN
+                        $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+                        if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                     }
                 }
             }
