@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.38
+    Version: 1.0.39
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -64,6 +64,8 @@
     1.0.38 - February 26, 2025
         - Added color-coded console output: Cyan (headers), Green (success), Yellow (progress), Red (errors).
         - Included .VERSION HISTORY section documenting all changes from 1.0.24 to 1.0.38.
+    1.0.39 - February 26, 2025
+        - Updated vCenter and output path selection choices to display in White, keeping headers in Cyan.
 #>
 
 # --- Configuration Variables ---
@@ -100,6 +102,9 @@ function Get-NumericChoice {
     )
     do {
         Write-Host $Prompt -ForegroundColor Cyan
+        foreach ($line in $Prompt.Split("`n") | Where-Object { $_ -match "^\d+\." }) {
+            Write-Host $line -ForegroundColor White
+        }
         $input = Read-Host "Enter a number ($Min-$Max)"
         if ($input -match '^\d+$' -and [int]$input -ge $Min -and [int]$input -le $Max) {
             return [int]$input
