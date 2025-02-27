@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.40
+    Version: 1.0.42
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -68,6 +68,10 @@
         - Updated vCenter and output path selection choices to display in White, keeping headers in Cyan (contained duplication issue).
     1.0.40 - February 26, 2025
         - Fixed duplication in vCenter and output path selection prompts by correcting Get-NumericChoice function to display header in Cyan and options in White without overlap.
+    1.0.41 - February 26, 2025
+        - Simplified debug output starting from 1.0.40 baseline, removing 'Debug:' prefix and reducing verbosity for cleaner, user-friendly data display.
+    1.0.42 - February 26, 2025
+        - Changed progress/information messages (including simplified data output) from Yellow to White.
 #>
 
 # --- Configuration Variables ---
@@ -186,7 +190,7 @@ if ($global:DefaultVIServers) {
 
 try {
     # Connect to the specified vCenter
-    Write-Host "Connecting to $vCenterServer..." -ForegroundColor Yellow
+    Write-Host "Connecting to $vCenterServer..." -ForegroundColor White
     $viServer = Connect-VIServer -Server $vCenterServer -Credential $credential -ErrorAction Stop
     Write-Host "Connected to $vCenterServer successfully." -ForegroundColor Green
 }
@@ -215,7 +219,7 @@ $css = @"
 $vmHosts = Get-VMHost -Server $viServer | Sort-Object Name
 
 foreach ($vmHost in $vmHosts) {
-    Write-Host "Processing network configuration for host: $($vmHost.Name)" -ForegroundColor Yellow
+    Write-Host "Processing network configuration for host: $($vmHost.Name)" -ForegroundColor White
     
     $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
@@ -239,14 +243,10 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel -Server $viServer
-        Write-Host "Debug: Host Default Gateway: $($hostNetwork.DefaultGateway)" -ForegroundColor Yellow
+        Write-Host "Host Default Gateway: $($hostNetwork.DefaultGateway)" -ForegroundColor White
         $routes = $vmHost | Get-VMHostRoute -Server $viServer
-        $routeStrings = $routes | ForEach-Object { "$($_.Destination) via $($_.Gateway)" }
-        Write-Host "Debug: Full Routes: $([String]::Join(', ', $routeStrings))" -ForegroundColor Yellow
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
-        Write-Host "Debug: Route Default Gateway: $($defaultGateway)" -ForegroundColor Yellow
         $vmkData = foreach ($vmk in $vmkAdapters) {
-            Write-Host "Debug: $($vmk.Name) IPGateway: '$($vmk.IPGateway)', ManagementEnabled: $($vmk.ManagementTrafficEnabled)" -ForegroundColor Yellow
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
             } elseif ($vmk.ManagementTrafficEnabled -and $defaultGateway -and $defaultGateway -ne '0.0.0.0') { 
@@ -254,6 +254,7 @@ foreach ($vmHost in $vmHosts) {
             } else { 
                 'N/A' 
             }
+            Write-Host "$($vmk.Name) IP: $($vmk.IP), Gateway: $vmkGateway" -ForegroundColor White
 
             [PSCustomObject]@{
                 Name = $vmk.Name
@@ -289,35 +290,20 @@ foreach ($vmHost in $vmHosts) {
                         $vlan = (Get-VirtualPortGroup -Name $_.PortGroupName -VMHost $vmHost -Server $viServer).VLanId
                         "$($_.Name) (VLAN $vlan)"
                     })
-                    Write-Host "Joining vmkArray for $($vSwitch.Name): $([String]::Join(', ', $vmkArray))" -ForegroundColor Yellow
                     [String]::Join(', ', $vmkArray)
                 } else {
                     'None'
                 }
-
-                Write-Host "Debug: Teaming for $($vSwitch.Name) is null: $($teaming -eq $null)" -ForegroundColor Yellow
-                if ($teaming) {
-                    Write-Host "Debug: ActiveNic is null: $($teaming.ActiveNic -eq $null)" -ForegroundColor Yellow
-                    Write-Host "Debug: StandbyNic is null: $($teaming.StandbyNic -eq $null)" -ForegroundColor Yellow
-                    Write-Host "Debug: LoadBalancingPolicy: $($teaming.LoadBalancingPolicy -or 'null')" -ForegroundColor Yellow
-                }
+                Write-Host "$($vSwitch.Name) NICs: $([String]::Join(', ', @($vSwitch.Nic))), VMkernels: $vmkList" -ForegroundColor White
 
                 $nicList = if ($null -ne $vSwitch.Nic) { @($vSwitch.Nic) } else { @() }
                 $activeNicList = if ($teaming -and $null -ne $teaming.ActiveNic) { @($teaming.ActiveNic) } else { @() }
                 $standbyNicList = if ($teaming -and $null -ne $teaming.StandbyNic) { @($teaming.StandbyNic) } else { @() }
                 $loadBalancing = if ($teaming -and $null -ne $teaming.LoadBalancingPolicy) { $teaming.LoadBalancingPolicy } else { 'N/A' }
 
-                Write-Host "Debug: nicList before join: $(if ($nicList) { $nicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
-                Write-Host "Debug: activeNicList before join: $(if ($activeNicList) { $activeNicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
-                Write-Host "Debug: standbyNicList before join: $(if ($standbyNicList) { $standbyNicList -join ', ' } else { 'empty' })" -ForegroundColor Yellow
-
                 $nicString = [String]::Join(', ', @($nicList))
                 $activeNicString = [String]::Join(', ', @($activeNicList))
                 $standbyNicString = [String]::Join(', ', @($standbyNicList))
-
-                Write-Host "Joining nicList for $($vSwitch.Name): $nicString" -ForegroundColor Yellow
-                Write-Host "Joining activeNicList for $($vSwitch.Name): $activeNicString" -ForegroundColor Yellow
-                Write-Host "Joining standbyNicList for $($vSwitch.Name): $standbyNicString" -ForegroundColor Yellow
 
                 [PSCustomObject]@{
                     Name = $vSwitch.Name
@@ -362,22 +348,13 @@ foreach ($vmHost in $vmHosts) {
                 
                 $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
                 $proxySwitch = $netSystem.NetworkInfo.ProxySwitch | Where-Object { $_.DvsUuid -eq $dvSwitch.ExtensionData.Uuid }
-                Write-Host "Debug: ProxySwitch for $($dvSwitch.Name) found: $($null -ne $proxySwitch)" -ForegroundColor Yellow
-                if ($proxySwitch) {
-                    Write-Host "Debug: Pnic for $($dvSwitch.Name): $([String]::Join(', ', $proxySwitch.Pnic))" -ForegroundColor Yellow
-                }
-                
                 $dvUplinks = if ($proxySwitch -and $proxySwitch.Pnic) {
                     $proxySwitch.Pnic | ForEach-Object { $_.Split('-')[-1] }
                 } else {
                     @()
                 }
-                $uplinkNames = if ($dvUplinks) {
-                    Write-Host "Joining uplinkArray for $($dvSwitch.Name): $([String]::Join(', ', $dvUplinks))" -ForegroundColor Yellow
-                    [String]::Join(', ', $dvUplinks)
-                } else {
-                    'None'
-                }
+                $uplinkNames = if ($dvUplinks) { [String]::Join(', ', $dvUplinks) } else { 'None' }
+                Write-Host "$($dvSwitch.Name) NICs: $uplinkNames" -ForegroundColor White
 
                 $activeNicList = @()
                 $standbyNicList = @()
@@ -399,8 +376,8 @@ foreach ($vmHost in $vmHosts) {
                     }
                 }
 
-                Write-Host "Joining activeNicList for $($dvSwitch.Name): $([String]::Join(', ', $activeNicList))" -ForegroundColor Yellow
-                Write-Host "Joining standbyNicList for $($dvSwitch.Name): $([String]::Join(', ', $standbyNicList))" -ForegroundColor Yellow
+                $activeNicString = [String]::Join(', ', $activeNicList)
+                $standbyNicString = [String]::Join(', ', $standbyNicList)
 
                 [PSCustomObject]@{
                     Name = $dvSwitch.Name
@@ -411,8 +388,8 @@ foreach ($vmHost in $vmHosts) {
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
-                    ActiveNICs = [String]::Join(', ', $activeNicList)
-                    StandbyNICs = [String]::Join(', ', $standbyNicList)
+                    ActiveNICs = $activeNicString
+                    StandbyNICs = $standbyNicString
                 }
             }
         } else {
@@ -464,13 +441,13 @@ foreach ($vmHost in $vmHosts) {
         if ($standardPortGroups.Count -gt 0) {
             $sortedStandard = @($standardPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedStandard)
+            Write-Host "Standard Port Groups: $(($sortedStandard | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor White
         }
-
         if ($distributedPortGroups.Count -gt 0) {
             $sortedDistributed = @($distributedPortGroups | Sort-Object 'Associated vSwitch', 'VLAN ID')
             $vmPortGroupData.AddRange($sortedDistributed)
+            Write-Host "Distributed Port Groups: $(($sortedDistributed | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor White
         }
-
         if ($vmPortGroupData.Count -eq 0) {
             $vmPortGroupData.Add([PSCustomObject]@{
                 Name = 'None'
@@ -478,8 +455,8 @@ foreach ($vmHost in $vmHosts) {
                 'Associated vSwitch' = 'N/A'
                 SwitchType = 'N/A'
             }) | Out-Null
+            Write-Host "No VM Port Groups found." -ForegroundColor White
         }
-
         $htmlContent.Add(($vmPortGroupData | Select-Object Name, 'VLAN ID', 'Associated vSwitch' | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- DNS and Routing ---
@@ -488,8 +465,10 @@ foreach ($vmHost in $vmHosts) {
         $dnsServersList = if ($null -ne $networkConfig.DnsAddress) { $networkConfig.DnsAddress } else { @() }
         $staticRoutesList = if ($null -ne ($vmHost | Get-VMHostRoute -Server $viServer)) { @($vmHost | Get-VMHostRoute -Server $viServer | ForEach-Object { "$($_.Destination)/$($_.PrefixLength) via $($_.Gateway)" }) } else { @() }
         
-        Write-Host "Joining dnsServersList: $([String]::Join(', ', $dnsServersList))" -ForegroundColor Yellow
-        Write-Host "Joining staticRoutesList: $([String]::Join(', ', $staticRoutesList))" -ForegroundColor Yellow
+        Write-Host "DNS Servers: $([String]::Join(', ', $dnsServersList))" -ForegroundColor White
+        if ($staticRoutesList.Count -gt 0) {
+            Write-Host "Static Routes: $([String]::Join(', ', $staticRoutesList))" -ForegroundColor White
+        }
         
         $dnsRoutingData = [PSCustomObject]@{
             DNSServers = [String]::Join(', ', $dnsServersList)
@@ -501,6 +480,9 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="firewall">Firewall Rules</h2>') | Out-Null
         $firewallRules = Get-VMHostFirewallException -VMHost $vmHost -Server $viServer | Where-Object { $_.Enabled }
         $firewallData = $firewallRules | Select-Object Name, Enabled, Protocol, @{N='Port';E={$_.Port}}
+        if ($firewallRules.Count -gt 0) {
+            Write-Host "Enabled Firewall Rules: $(($firewallRules | ForEach-Object { $_.Name }) -join ', ')" -ForegroundColor White
+        }
         $htmlContent.Add(($firewallData | ConvertTo-Html -Fragment)) | Out-Null
 
         # --- NTP Settings ---
@@ -509,7 +491,7 @@ foreach ($vmHost in $vmHosts) {
         $ntpService = Get-VMHostService -VMHost $vmHost -Server $viServer | Where-Object { $_.Key -eq 'ntpd' }
         $ntpServersList = if ($null -ne $ntpConfig) { $ntpConfig } else { @() }
         
-        Write-Host "Joining ntpServersList: $([String]::Join(', ', $ntpServersList))" -ForegroundColor Yellow
+        Write-Host "NTP Servers: $([String]::Join(', ', $ntpServersList))" -ForegroundColor White
         
         $ntpData = [PSCustomObject]@{
             NTPServers = [String]::Join(', ', $ntpServersList)
@@ -557,15 +539,14 @@ foreach ($vmHost in $vmHosts) {
                     $pnicList -and $pnicList -contains $nic.Name
                 } | ForEach-Object { $_.Name }
             )
-            
-            Write-Host "Joining vSwitchList for $($nic.Name): $([String]::Join(', ', $vSwitchList))" -ForegroundColor Yellow
-            Write-Host "Debug: $($nic.Name) LinkSpeedMb: '$($nic.LinkSpeedMb)', SpeedMb from View: '$($nicSpeeds[$nic.Name])'" -ForegroundColor Yellow
+            $vSwitchesString = [String]::Join(', ', $vSwitchList)
+            Write-Host "$($nic.Name) Speed: $(if ($nicSpeeds[$nic.Name]) { "$($nicSpeeds[$nic.Name]) Mb/s" } else { 'Unknown' }), vSwitches: $vSwitchesString" -ForegroundColor White
             
             [PSCustomObject]@{
                 Name = $nic.Name
                 MAC = $nic.Mac
                 LinkSpeed = if ($null -ne $nicSpeeds[$nic.Name]) { "$($nicSpeeds[$nic.Name]) Mb/s" } else { 'Unknown' }
-                vSwitches = [String]::Join(', ', $vSwitchList)
+                vSwitches = $vSwitchesString
                 CDP_Switch = if ($cdp) { $cdp.DevId } else { 'N/A' }
                 CDP_Port = if ($cdp) { $cdp.PortId } else { 'N/A' }
                 CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
