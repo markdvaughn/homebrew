@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.45
+    Version: 1.0.46
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -77,8 +77,11 @@
     1.0.44 - February 26, 2025
         - Attempted to fix VLAN ID detection for VMkernel adapters on distributed vSwitches but introduced issues with VLAN retrieval for both VMkernel and VM Port Groups.
     1.0.45 - February 26, 2025
-        - Corrected VLAN ID retrieval for VMkernel adapters on vDS using Get-VDPortgroup with proper VlanId access.
-        - Fixed VM Port Groups VLAN ID for distributed port groups by simplifying and correcting VlanId handling.
+        - Corrected VLAN ID retrieval for VMkernel adapters on vDS using Get-VDPortgroup with proper VlanId access (still failed for vDS VMkernels).
+        - Fixed VM Port Groups VLAN ID for distributed port groups by simplifying VlanId handling (still showed blank).
+    1.0.46 - February 26, 2025
+        - Enhanced VMkernel VLAN ID detection for vDS by using vSwitch type and falling back to Get-View for accuracy.
+        - Corrected VM Port Groups VLAN ID for dvPortGroups by using Get-View to fetch VlanId reliably.
 #>
 
 # --- Configuration Variables ---
@@ -263,30 +266,32 @@ foreach ($vmHost in $vmHosts) {
                 'N/A' 
             }
             
-            # Determine if the VMkernel is on a standard or distributed vSwitch
+            # Determine VLAN ID based on vSwitch type
             $vlanId = 'N/A'
-            $vSwitch = Get-VirtualSwitch -VMHost $vmHost -Server $viServer | Where-Object { $_.Name -eq $vmk.VirtualSwitchName }
-            if ($vSwitch -and $vSwitch.ExtensionData -is [VMware.Vim.DistributedVirtualSwitch]) {
-                # Distributed vSwitch
-                $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
-                if ($portGroup) {
-                    # Handle VLAN ID for distributed port group
-                    $vlanId = if ($portGroup.VlanId -eq 0 -and $portGroup.VlanConfiguration) {
-                        # Check for trunking or special VLAN config
-                        if ($portGroup.VlanConfiguration.VlanType -eq 'Trunk') {
-                            "Trunk ($($portGroup.VlanConfiguration.VlanId))"
-                        } else {
-                            '0'  # Explicitly show 0 if no VLAN
+            $vSwitch = Get-VirtualSwitch -VMHost $vmHost -Server $viServer -Name $vmk.VirtualSwitchName -ErrorAction SilentlyContinue
+            if ($vSwitch) {
+                if ($vSwitch.ExtensionData -is [VMware.Vim.DistributedVirtualSwitch]) {
+                    # Distributed vSwitch
+                    $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                    if ($portGroup) {
+                        $vlanId = $portGroup.VlanId
+                        if ($vlanId -eq $null -or $vlanId -eq 0) {
+                            # Fallback to Get-View for vDS port group
+                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer
+                            $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                            $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                $vlanConfig.VlanId
+                            } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                            } else {
+                                '0'
+                            }
                         }
-                    } else {
-                        $portGroup.VlanId
                     }
-                }
-            } else {
-                # Standard vSwitch
-                $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
-                if ($portGroup) {
-                    $vlanId = $portGroup.VLanId
+                } else {
+                    # Standard vSwitch
+                    $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+                    $vlanId = if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                 }
             }
             
@@ -329,10 +334,17 @@ foreach ($vmHost in $vmHosts) {
                         } else { 
                             $portGroupDist = Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
                             if ($portGroupDist) {
-                                if ($portGroupDist.VlanId -eq 0 -and $portGroupDist.VlanConfiguration -and $portGroupDist.VlanConfiguration.VlanType -eq 'Trunk') {
-                                    "Trunk ($($portGroupDist.VlanConfiguration.VlanId))"
-                                } else {
-                                    $portGroupDist.VlanId
+                                $vlanId = $portGroupDist.VlanId
+                                if ($vlanId -eq $null -or $vlanId -eq 0) {
+                                    $pgView = Get-View -Id $portGroupDist.ExtensionData.MoRef -Server $viServer
+                                    $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                                    $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                        $vlanConfig.VlanId
+                                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                        "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                    } else {
+                                        '0'
+                                    }
                                 }
                             } else {
                                 'N/A'
@@ -479,10 +491,18 @@ foreach ($vmHost in $vmHosts) {
         foreach ($dvSwitch in $dvSwitches) {
             $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
             foreach ($pg in $dvPortGroups) {
-                $vlanId = if ($pg.VlanId -eq 0 -and $pg.VlanConfiguration -and $pg.VlanConfiguration.VlanType -eq 'Trunk') {
-                    "Trunk ($($pg.VlanConfiguration.VlanId))"
-                } else {
-                    $pg.VlanId
+                $vlanId = $pg.VlanId
+                if ($vlanId -eq $null -or $vlanId -eq 0) {
+                    # Fallback to Get-View for accurate VLAN info
+                    $pgView = Get-View -Id $pg.ExtensionData.MoRef -Server $viServer
+                    $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                    $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                        $vlanConfig.VlanId
+                    } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                        "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                    } else {
+                        '0'
+                    }
                 }
                 $distributedPortGroups.Add([PSCustomObject]@{
                     Name = $pg.Name
@@ -607,7 +627,7 @@ foreach ($vmHost in $vmHosts) {
                 CDP_Hardware = if ($cdp) { $cdp.HardwarePlatform } else { 'N/A' }
                 LLDP_Switch = if ($lldp) { $lldp.SystemName } else { 'N/A' }
                 LLDP_Port = if ($lldp) { $lldp.PortId } else { 'N/A' }
-                LLDP_Hardware = if ($lldp) { $lldl.ChassisId } else { 'N/A' }
+                LLDP_Hardware = if ($lldp) { $lldp.ChassisId } else { 'N/A' }
             }
         }
         $htmlContent.Add(($nicData | ConvertTo-Html -Fragment)) | Out-Null
