@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.52
+    Version: 1.0.53
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -95,8 +95,11 @@
     1.0.51 - February 26, 2025
         - Attempted to fix vDS VMkernel VLANs by querying host NetworkConfig.Portgroup, but still showed '0'.
     1.0.52 - February 26, 2025
-        - Fixed vDS VMkernel VLAN ID retrieval by querying NetworkConfig.Vnic for VMkernel-specific VLANs.
+        - Fixed vDS VMkernel VLAN ID retrieval by querying NetworkConfig.Vnic, but all VMkernels showed 'N/A' due to logic error.
         - Added cluster selection feature to query hosts from a specific cluster or all clusters.
+    1.0.53 - February 26, 2025
+        - Fixed VMkernel VLAN ID retrieval to correctly display VLANs for both standard and vDS VMkernels.
+        - Added VMkernels_VLANs column to Distributed vSwitches section.
 #>
 
 # --- Configuration Variables ---
@@ -115,7 +118,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Script name and version for footer
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.52"
+$scriptVersion = "1.0.53"
 
 # --- End Configuration Variables ---
 
@@ -294,10 +297,6 @@ foreach ($vmHost in $vmHosts) {
         $routes = $vmHost | Get-VMHostRoute -Server $viServer
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
         
-        # Get host network system view for VMkernel VLAN info
-        $netSystem = Get-View -Id $vmHost.ExtensionData.ConfigManager.NetworkSystem -Server $viServer
-        $vnicConfig = $netSystem.NetworkConfig.Vnic
-        
         $vmkData = foreach ($vmk in $vmkAdapters) {
             $vmkGateway = if ($vmk.IPGateway -and $vmk.IPGateway -ne '0.0.0.0') { 
                 $vmk.IPGateway 
@@ -307,35 +306,28 @@ foreach ($vmHost in $vmHosts) {
                 'N/A' 
             }
             
-            # Determine VLAN ID from VMkernel config
+            # Determine VLAN ID from port group
             $vlanId = 'N/A'
-            if ($vmk.Device) {
-                $vmkConfig = $vnicConfig | Where-Object { $_.Device -eq $vmk.Device }
-                if ($vmkConfig) {
-                    $vlanId = if ($vmkConfig.Spec.DistributedVirtualPort) {
-                        # vDS VMkernel: Get VLAN from port configuration
-                        $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
-                        if ($portGroup) {
-                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
-                            if ($pgView) {
-                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                                    $vlanConfig.VlanId
-                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
-                                } else {
-                                    '0'
-                                }
+            if ($vmk.PortGroupName) {
+                # Try standard vSwitch port group first
+                $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+                if ($portGroup) {
+                    $vlanId = $portGroup.VLanId
+                } else {
+                    # Distributed vSwitch port group
+                    $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                    if ($portGroup) {
+                        $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                        if ($pgView) {
+                            $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                            $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                $vlanConfig.VlanId
+                            } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                             } else {
                                 '0'
                             }
-                        } else {
-                            'N/A'
                         }
-                    } else {
-                        # Standard vSwitch: Use port group VLAN
-                        $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
-                        if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                     }
                 }
             }
@@ -461,7 +453,37 @@ foreach ($vmHost in $vmHosts) {
                     @()
                 }
                 $uplinkNames = if ($dvUplinks) { [String]::Join(', ', $dvUplinks) } else { 'None' }
-                Write-Host "$($dvSwitch.Name) NICs: $uplinkNames" -ForegroundColor White
+                
+                # Get VMkernels associated with this vDS
+                $dvPortGroups = Get-VDPortgroup -VDSwitch $dvSwitch -Server $viServer
+                $relatedVmk = $vmkAdapters | Where-Object { $_.PortGroupName -in $dvPortGroups.Name }
+                $vmkList = if ($relatedVmk) {
+                    $vmkArray = @($relatedVmk | ForEach-Object { 
+                        $portGroup = Get-VDPortgroup -Name $_.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                        $vlanId = if ($portGroup) {
+                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                            if ($pgView) {
+                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                                if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                    $vlanConfig.VlanId
+                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                } else {
+                                    '0'
+                                }
+                            } else {
+                                'N/A'
+                            }
+                        } else {
+                            'N/A'
+                        }
+                        "$($_.Name) (VLAN $vlanId)"
+                    })
+                    [String]::Join(', ', $vmkArray)
+                } else {
+                    'None'
+                }
+                Write-Host "$($dvSwitch.Name) NICs: $uplinkNames, VMkernels: $vmkList" -ForegroundColor White
 
                 $activeNicList = @()
                 $standbyNicList = @()
@@ -490,13 +512,14 @@ foreach ($vmHost in $vmHosts) {
                     Name = $dvSwitch.Name
                     Ports = $dvSwitch.NumPorts
                     MTU = $dvSwitch.Mtu
-                    NICs = $nicString
+                    NICs = $uplinkNames
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
                     LoadBalancing = $loadBalancing
                     ActiveNICs = $activeNicString
                     StandbyNICs = $standbyNicString
+                    VMkernels_VLANs = $vmkList
                 }
             }
         } else {
@@ -511,6 +534,7 @@ foreach ($vmHost in $vmHosts) {
                 LoadBalancing = ''
                 ActiveNICs = ''
                 StandbyNICs = ''
+                VMkernels_VLANs = 'N/A'
             }
         }
         $htmlContent.Add(($dvSwitchData | ConvertTo-Html -Fragment)) | Out-Null
