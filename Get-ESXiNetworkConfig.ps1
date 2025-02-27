@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.46
+    Version: 1.0.47
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -80,8 +80,12 @@
         - Corrected VLAN ID retrieval for VMkernel adapters on vDS using Get-VDPortgroup with proper VlanId access (still failed for vDS VMkernels).
         - Fixed VM Port Groups VLAN ID for distributed port groups by simplifying VlanId handling (still showed blank).
     1.0.46 - February 26, 2025
-        - Enhanced VMkernel VLAN ID detection for vDS by using vSwitch type and falling back to Get-View for accuracy.
-        - Corrected VM Port Groups VLAN ID for dvPortGroups by using Get-View to fetch VlanId reliably.
+        - Enhanced VMkernel VLAN ID detection for vDS by using vSwitch type and falling back to Get-View (still showed N/A for vDS VMkernels).
+        - Corrected VM Port Groups VLAN ID for dvPortGroups using Get-View (still showed blank).
+    1.0.47 - February 26, 2025
+        - Added HTML footer with script name, version, and timestamp.
+        - Fixed error 'cannot validate argument on parameter 'Name'' by handling missing VirtualSwitchName in VMkernel Interfaces section.
+        - Improved robustness for null DefaultGateway handling.
 #>
 
 # --- Configuration Variables ---
@@ -97,6 +101,10 @@ $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 
 # Script execution directory (determined at runtime)
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Script name and version for footer
+$scriptName = $MyInvocation.MyCommand.Name
+$scriptVersion = "1.0.47"
 
 # --- End Configuration Variables ---
 
@@ -222,6 +230,7 @@ $css = @"
     .toc { margin-bottom: 20px; }
     .toc a { margin-right: 15px; }
     .timestamp { font-size: 12px; font-style: italic; }
+    .footer { font-size: 10px; color: #666; text-align: center; margin-top: 20px; }
 </style>
 "@
 
@@ -234,7 +243,7 @@ foreach ($vmHost in $vmHosts) {
     $reportDateTime = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
     
     $htmlContent = [System.Collections.ArrayList]::new()
-    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><div class='timestamp'>$reportDateTime</div>") | Out-Null
+    $htmlContent.Add("<html><head>$css</head><body><h1>Network Configuration - $($vmHost.Name)</h1><div class='timestamp'>Generated on: $reportDateTime</div>") | Out-Null
     
     $toc = '<div class="toc"><h2>Table of Contents</h2>'
     $toc += '<a href="#vmkernel">VMkernel Interfaces</a>'
@@ -253,7 +262,7 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel -Server $viServer
-        Write-Host "Host Default Gateway: $($hostNetwork.DefaultGateway)" -ForegroundColor White
+        Write-Host "Host Default Gateway: $($hostNetwork.DefaultGateway ?? 'N/A')" -ForegroundColor White
         $routes = $vmHost | Get-VMHostRoute -Server $viServer
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
         
@@ -268,30 +277,32 @@ foreach ($vmHost in $vmHosts) {
             
             # Determine VLAN ID based on vSwitch type
             $vlanId = 'N/A'
-            $vSwitch = Get-VirtualSwitch -VMHost $vmHost -Server $viServer -Name $vmk.VirtualSwitchName -ErrorAction SilentlyContinue
-            if ($vSwitch) {
-                if ($vSwitch.ExtensionData -is [VMware.Vim.DistributedVirtualSwitch]) {
-                    # Distributed vSwitch
-                    $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
-                    if ($portGroup) {
-                        $vlanId = $portGroup.VlanId
-                        if ($vlanId -eq $null -or $vlanId -eq 0) {
-                            # Fallback to Get-View for vDS port group
-                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer
-                            $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                            $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                                $vlanConfig.VlanId
-                            } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                                "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
-                            } else {
-                                '0'
+            if ($vmk.VirtualSwitchName) {
+                $vSwitch = Get-VirtualSwitch -VMHost $vmHost -Server $viServer -Name $vmk.VirtualSwitchName -ErrorAction SilentlyContinue
+                if ($vSwitch) {
+                    if ($vSwitch.ExtensionData -is [VMware.Vim.DistributedVirtualSwitch]) {
+                        # Distributed vSwitch
+                        $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
+                        if ($portGroup) {
+                            $vlanId = $portGroup.VlanId
+                            if ($vlanId -eq $null -or $vlanId -eq 0) {
+                                # Fallback to Get-View for vDS port group
+                                $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer
+                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                                $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                    $vlanConfig.VlanId
+                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                                } else {
+                                    '0'
+                                }
                             }
                         }
+                    } else {
+                        # Standard vSwitch
+                        $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
+                        $vlanId = if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                     }
-                } else {
-                    # Standard vSwitch
-                    $portGroup = Get-VirtualPortGroup -Name $vmk.PortGroupName -VMHost $vmHost -Server $viServer -Standard -ErrorAction SilentlyContinue
-                    $vlanId = if ($portGroup) { $portGroup.VLanId } else { 'N/A' }
                 }
             }
             
@@ -445,7 +456,7 @@ foreach ($vmHost in $vmHosts) {
                     Name = $dvSwitch.Name
                     Ports = $dvSwitch.NumPorts
                     MTU = $dvSwitch.Mtu
-                    NICs = $uplinkNames
+                    NICs = $nicString
                     Promiscuous = $security.AllowPromiscuous
                     ForgedTransmits = $security.ForgedTransmits
                     MacChanges = $security.MacChanges
@@ -631,6 +642,11 @@ foreach ($vmHost in $vmHosts) {
             }
         }
         $htmlContent.Add(($nicData | ConvertTo-Html -Fragment)) | Out-Null
+
+        # Add footer
+        $footerTimestamp = Get-Date -Format "MMMM dd, yyyy HH:mm:ss"
+        $footer = "<div class='footer'>Generated by $scriptName (Version $scriptVersion) on $footerTimestamp</div>"
+        $htmlContent.Add($footer) | Out-Null
 
         # Close HTML
         $htmlContent.Add('</body></html>') | Out-Null
