@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.47
+    Version: 1.0.48
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -85,7 +85,9 @@
     1.0.47 - February 26, 2025
         - Added HTML footer with script name, version, and timestamp.
         - Fixed error 'cannot validate argument on parameter 'Name'' by handling missing VirtualSwitchName in VMkernel Interfaces section.
-        - Improved robustness for null DefaultGateway handling.
+        - Used ?? operator for null DefaultGateway handling (incompatible with PowerShell 5.1).
+    1.0.48 - February 26, 2025
+        - Replaced ?? operator with compatible null check for DefaultGateway to support PowerShell 5.1 and earlier.
 #>
 
 # --- Configuration Variables ---
@@ -104,7 +106,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Script name and version for footer
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.47"
+$scriptVersion = "1.0.48"
 
 # --- End Configuration Variables ---
 
@@ -262,7 +264,8 @@ foreach ($vmHost in $vmHosts) {
         $htmlContent.Add('<h2 id="vmkernel">VMkernel Interfaces</h2>') | Out-Null
         $hostNetwork = Get-VMHostNetwork -VMHost $vmHost -Server $viServer
         $vmkAdapters = Get-VMHostNetworkAdapter -VMHost $vmHost -VMKernel -Server $viServer
-        Write-Host "Host Default Gateway: $($hostNetwork.DefaultGateway ?? 'N/A')" -ForegroundColor White
+        $defaultGatewayDisplay = if ($hostNetwork.DefaultGateway -eq $null) { 'N/A' } else { $hostNetwork.DefaultGateway }
+        Write-Host "Host Default Gateway: $defaultGatewayDisplay" -ForegroundColor White
         $routes = $vmHost | Get-VMHostRoute -Server $viServer
         $defaultGateway = ($routes | Where-Object { $_.Destination -eq '0.0.0.0' } | Select-Object -First 1).Gateway
         
