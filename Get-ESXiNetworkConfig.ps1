@@ -27,7 +27,7 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 26, 2025
 
-    Version: 1.0.49
+    Version: 1.0.50
     Last Updated: February 26, 2025
 
 .VERSION HISTORY
@@ -89,7 +89,9 @@
     1.0.48 - February 26, 2025
         - Replaced ?? operator with compatible null check for DefaultGateway to support PowerShell 5.1 and earlier.
     1.0.49 - February 26, 2025
-        - Fixed VMkernel Interfaces VLAN ID retrieval to correctly display VLANs for both standard and distributed vSwitches.
+        - Fixed VMkernel Interfaces VLAN ID retrieval for standard vSwitches, but vDS VMkernels still showed 'N/A'.
+    1.0.50 - February 26, 2025
+        - Corrected VMkernel Interfaces VLAN ID retrieval for vDS by using Get-View consistently, fixing vDS VLANs showing as '0'.
 #>
 
 # --- Configuration Variables ---
@@ -108,7 +110,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Script name and version for footer
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.49"
+$scriptVersion = "1.0.50"
 
 # --- End Configuration Variables ---
 
@@ -288,22 +290,19 @@ foreach ($vmHost in $vmHosts) {
                 if ($portGroup) {
                     $vlanId = $portGroup.VLanId
                 } else {
-                    # Try distributed vSwitch port group
+                    # Distributed vSwitch port group
                     $portGroup = Get-VDPortgroup -Name $vmk.PortGroupName -Server $viServer -ErrorAction SilentlyContinue
                     if ($portGroup) {
-                        $vlanId = $portGroup.VlanId
-                        if ($vlanId -eq $null -or $vlanId -eq 0) {
-                            # Fallback to Get-View for vDS port group
-                            $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
-                            if ($pgView) {
-                                $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
-                                $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
-                                    $vlanConfig.VlanId
-                                } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
-                                    "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
-                                } else {
-                                    '0'
-                                }
+                        # Use Get-View directly for vDS to ensure correct VLAN
+                        $pgView = Get-View -Id $portGroup.ExtensionData.MoRef -Server $viServer -ErrorAction SilentlyContinue
+                        if ($pgView) {
+                            $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
+                            $vlanId = if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec]) {
+                                $vlanConfig.VlanId
+                            } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec]) {
+                                "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
+                            } else {
+                                '0'
                             }
                         }
                     }
