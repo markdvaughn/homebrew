@@ -27,17 +27,17 @@
     - Ignores invalid SSL certificates by default.
     - Current date used in script execution: February 27, 2025
 
-    Version: 1.0.71
+    Version: 1.0.72
     Last Updated: February 27, 2025
 
 .VERSION HISTORY
     1.0.24 - February 25, 2025
         - Initial version provided by user with detailed ESXi network configuration reporting.
-    # [Previous versions 1.0.25 to 1.0.70 omitted for brevity, see prior script for full history]
-    1.0.70 - February 27, 2025
-        - Restored VLAN values for vDS VMkernels, but repetition persisted ("1221 1221 1221").
+    # [Previous versions 1.0.25 to 1.0.71 omitted for brevity, see prior script for full history]
     1.0.71 - February 27, 2025
-        - Fixed VLAN repetition for vDS VMkernels by using integer value directly and controlling string conversion at output.
+        - Kept VLAN as integer to avoid early stringification, but interpolation still caused repetition ("1221 1221 1221").
+    1.0.72 - February 27, 2025
+        - Fixed VLAN repetition by explicitly converting integer to string with ToString() before output.
 #>
 
 # --- Configuration Variables ---
@@ -49,7 +49,7 @@ $vCenterList = @(
 $defaultOutputPath = "C:\Reports\ESXiNetworkConfig"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $scriptName = $MyInvocation.MyCommand.Name
-$scriptVersion = "1.0.71"
+$scriptVersion = "1.0.72"
 # --- End Configuration Variables ---
 
 $PSDefaultParameterValues['Out-Default:Width'] = 200
@@ -199,7 +199,7 @@ foreach ($vmHost in $vmHosts) {
                         if ($portGroup.VlanConfiguration) {
                             $vlanConfig = $portGroup.VlanConfiguration
                             if ($vlanConfig.VlanId -ne $null) {
-                                $vlanId = $vlanConfig.VlanId  # Keep as integer
+                                $vlanId = $vlanConfig.VlanId.ToString()  # Explicit integer-to-string
                             } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                 $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                             } else {
@@ -210,7 +210,7 @@ foreach ($vmHost in $vmHosts) {
                             if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                 $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
                                 if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
-                                    $vlanId = $vlanConfig.VlanId  # Keep as integer
+                                    $vlanId = $vlanConfig.VlanId.ToString()  # Explicit integer-to-string
                                 } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                 } else {
@@ -234,7 +234,7 @@ foreach ($vmHost in $vmHosts) {
                 VMotion = $vmk.VMotionEnabled
                 FTLogging = $vmk.FaultToleranceLoggingEnabled
                 Management = $vmk.ManagementTrafficEnabled
-                VLAN = "$vlanId"  # Convert to string here
+                VLAN = $vlanId  # Already a string
                 MTU = $vmk.MTU
             }
         }
@@ -337,7 +337,7 @@ foreach ($vmHost in $vmHosts) {
                             if ($portGroup.VlanConfiguration) {
                                 $vlanConfig = $portGroup.VlanConfiguration
                                 if ($vlanConfig.VlanId -ne $null) {
-                                    $vlanId = $vlanConfig.VlanId  # Keep as integer
+                                    $vlanId = $vlanConfig.VlanId.ToString()  # Explicit integer-to-string
                                 } elseif ($vlanConfig.VlanRange -and $vlanConfig.VlanRange.Count -gt 0) {
                                     $vlanId = "Trunk ($($vlanConfig.VlanRange[0].Start)-$($vlanConfig.VlanRange[0].End))"
                                 } else {
@@ -348,7 +348,7 @@ foreach ($vmHost in $vmHosts) {
                                 if ($pgView -and $pgView.Config.DefaultPortConfig.Vlan) {
                                     $vlanConfig = $pgView.Config.DefaultPortConfig.Vlan
                                     if ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchVlanIdSpec] -and $vlanConfig.VlanId -ne $null) {
-                                        $vlanId = $vlanConfig.VlanId  # Keep as integer
+                                        $vlanId = $vlanConfig.VlanId.ToString()  # Explicit integer-to-string
                                     } elseif ($vlanConfig -is [VMware.Vim.VmwareDistributedVirtualSwitchTrunkVlanSpec] -and $vlanConfig.VlanId.Count -gt 0) {
                                         $vlanId = "Trunk ($($vlanConfig.VlanId[0].Start)-$($vlanConfig.VlanId[0].End))"
                                     } else {
