@@ -1,11 +1,9 @@
 IP adddresses and names removed for security
 
-Processing network configuration for host: esx01
-Host Default Gateway: N/A
 vmk0 IP: x.x.x.x, Gateway: x.x.x.x, VLAN: 1211
-vmk1 IP: x.x.x.x, Gateway: N/A, VLAN: 1221 1221 1221
-vmk2 IP: x.x.x.x, Gateway: N/A, VLAN: 1222 1222 1222
-vmk3 IP: x.x.x.x, Gateway: N/A, VLAN: 1212 1212 1212
+vmk1 IP: x.x.x.x, Gateway: N/A, VLAN: System.Object[]
+vmk2 IP: x.x.x.x, Gateway: N/A, VLAN: System.Object[]
+vmk3 IP: x.x.x.x, Gateway: N/A, VLAN: System.Object[]
 vmk4 IP: x.x.x.x, Gateway: N/A, VLAN: 1912
 Debug Before Write - vSwitch0: NICs=[vmnic1, vmnic3], ActiveNICs=[vmnic1, vmnic3], StandbyNICs=[], VMkernels=[vmk0 (VLAN 1211)]
 vSwitch0 NICs: vmnic1, vmnic3, VMkernels: vmk0 (VLAN 1211)
@@ -13,6 +11,4 @@ Debug Before PSCustomObject - vSwitch0: NICs=[vmnic1, vmnic3], ActiveNICs=[vmnic
 Debug Before Write - vSwitch1: NICs=[], ActiveNICs=[], StandbyNICs=[], VMkernels=[vmk4 (VLAN 1912)]
 vSwitch1 NICs: , VMkernels: vmk4 (VLAN 1912)
 Debug Before PSCustomObject - vSwitch1: NICs=[], ActiveNICs=[], StandbyNICs=[], VMkernels=[vmk4 (VLAN 1912)]
-ProdDS NICs: vmnic0, vmnic2, vmnic4, vmnic5, vmnic6, vmnic7, VMkernels: vmk1 (VLAN 1221 1221 1221), vmk2 (VLAN 1222 1222 1222), vmk3 (VLAN 1212 1212 1212)
-Error processing esx01: Cannot bind parameter 'VDSwitch'. Cannot convert the "vSwitch0" value of type "VMware.VimAutomation.ViCore.Impl.V1.Hos
-t.Networking.VirtualSwitchImpl" to type "VMware.VimAutomation.Vds.Types.V1.VDSwitch".
+ProdDS NICs: vmnic0, vmnic2, vmnic4, vmnic5, vmnic6, vmnic7, VMkernels: vmk1 (VLAN System.Object[]), vmk2 (VLAN System.Object[]), vmk3 (VLAN System.Object[])
