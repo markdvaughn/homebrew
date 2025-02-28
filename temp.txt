@@ -1,5 +1,7 @@
 IP adddresses and names removed for security
 
+Processing network configuration for host: esx01
+Host Default Gateway: N/A
 vmk0 IP: x.x.x.x, Gateway: x.x.x.x, VLAN: 1211
 vmk1 IP: x.x.x.x, Gateway: N/A, VLAN: 1221 1221 1221
 vmk2 IP: x.x.x.x, Gateway: N/A, VLAN: 1222 1222 1222
@@ -12,3 +14,20 @@ Debug Before Write - vSwitch1: NICs=[], ActiveNICs=[], StandbyNICs=[], VMkernels
 vSwitch1 NICs: , VMkernels: vmk4 (VLAN 1912)
 Debug Before PSCustomObject - vSwitch1: NICs=[], ActiveNICs=[], StandbyNICs=[], VMkernels=[vmk4 (VLAN 1912)]
 ProdDS NICs: vmnic0, vmnic2, vmnic4, vmnic5, vmnic6, vmnic7, VMkernels: vmk1 (VLAN 1221 1221 1221), vmk2 (VLAN 1222 1222 1222), vmk3 (VLAN 1212 1212 1212)
+Standard Port Groups: VM Network, Test Standard Switch
+Distributed Port Groups: VMotion, StorageA, StorageB, Servers, VMServers-DVUplinks
+DNS Servers: x.x.x.x, x.x.x.x
+Static Routes: , , , , , 
+Enabled Firewall Rules: CIM Server, CIM Secure Server, CIM SLP, DVSSync, HBR, NFC, WOL, Active Directory All, vSAN Clustering Service, DHCP Client, DNS Client, F
+ault Tolerance, vSphere High Availability Agent, hbr-agent, Software iSCSI Client, iofiltervp, NTP Client, vSAN Transport, SNMP Server, SSH Server, syslog, trust
+ed-infrastructure-kmxa, vCenter Update Manager, vMotion, vSphere Web Client, VMware vCenter Agent, vSphere Web Access
+NTP Servers: x.x.x.x, x.x.x.x
+vmnic0 Speed: 10000 Mb/s, vSwitches: ProdDS
+vmnic1 Speed: 10000 Mb/s, vSwitches: vSwitch0
+vmnic2 Speed: 10000 Mb/s, vSwitches: ProdDS
+vmnic3 Speed: 10000 Mb/s, vSwitches: vSwitch0
+vmnic4 Speed: 10000 Mb/s, vSwitches: ProdDS
+vmnic5 Speed: 10000 Mb/s, vSwitches: ProdDS
+vmnic6 Speed: 10000 Mb/s, vSwitches: ProdDS
+vmnic7 Speed: 10000 Mb/s, vSwitches: ProdDS
+Generated report: ...
